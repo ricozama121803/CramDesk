@@ -381,3 +381,18 @@ def test_todo_screen_add_check_off_and_remove():
         shown = "".join(seg.text for line in w.render_lines(w.region.reset_offset) for seg in line)
         assert "to-dos 0/2 done" in shown and "+1 open from earlier" not in shown
     run(script)
+
+
+def test_prompt_bar_adds_todos_in_either_order():
+    async def script(app, pilot):
+        punched_in_earlier(notes=())
+        for line in ("todo read ch 7", "todo add problem set 4", "add todo review statics notes"):
+            app.main.query_one("#cmd").focus()
+            await type_(pilot, line)
+        st = Store.load()
+        assert [t.text for t in st.todos] == ["read ch 7", "problem set 4", "review statics notes"]
+        assert st.running().notes == []                      # nothing slipped into the session
+        app.main.query_one("#cmd").focus()
+        await type_(pilot, "add class Statics")
+        assert Store.load().classes == ["Statics"]
+    run(script)

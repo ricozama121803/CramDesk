@@ -49,6 +49,7 @@ SHORTCUTS = [
     ("prompt bar", "(bottom)"),
     ("  in [class]", "start studying, optionally naming the class"),
     ("  out", "stop: review, add anything missing, save"),
+    ("  todo [text]", "add a to-do for this week (no text: open the list)"),
     ("  undo / redo", "take back your last change (or put it back)"),
     ("  /vday [day]", "view a day           /vday yesterday"),
     ("  /vweek [week]", "view the week's times  /vweek last"),
@@ -677,7 +678,8 @@ SLASH = [
     ("/config", "color theme", ""),
     ("/help", "commands and shortcuts", ""),
 ]
-WORDS = [("in", "start studying", "in linear algebra"), ("out", "stop", "")]
+WORDS = [("in", "start studying", "in linear algebra"), ("out", "stop", ""),
+         ("todo", "add a to-do for this week", "todo finish problem set 4")]
 
 
 class CommandInput(Input):
@@ -1863,14 +1865,40 @@ class MainScreen(Screen):
                 self._start(rest.strip())
         elif word == "out":
             self._punch_out()
+        elif word in ("todo", "todos", "class", "classes") or (
+                word == "add" and rest.split(" ", 1)[0].lower() in ("todo", "todos", "class", "classes")):
+            # "todo finish ps4", "todo add finish ps4" and the swapped "add todo finish ps4" all work
+            if word == "add":
+                word, _, rest = rest.partition(" ")
+                word = word.lower()
+            rest = rest.strip()
+            if rest.lower().startswith("add "):
+                rest = rest[4:].strip()
+            self._add_from_bar("todo" if word.startswith("todo") else "class", rest)
         elif word in ("undo", "redo"):
             n = int(rest) if rest.strip().isdigit() else 1
             for _ in range(n):
                 getattr(self.app, f"action_{word}")()
         else:
             event.input.value = text
-            self.app.notify("Commands are [b]in[/b], [b]out[/b], [b]undo[/b], [b]redo[/b] or [b]/…[/b]. "
+            self.app.notify("Commands are [b]in[/b], [b]out[/b], [b]todo …[/b], [b]undo[/b], [b]redo[/b] or [b]/…[/b]. "
                             "Notes go in the notes box ([b]tab[/b]).", severity="warning")
+
+    def _add_from_bar(self, group: str, text: str) -> None:
+        if not text:
+            self.action_todo() if group == "todo" else self.action_classes()
+            return
+        store = Store.load()
+        if group == "todo":
+            t = store.add_todo(text, week_start(date.today()))
+            msg = (f"{t.course}: " if t.course else "") + t.text
+            title = "✓ to-do added"
+        else:
+            msg = ", ".join(store.add_class(p) for p in text.split(",") if p.strip())
+            title = "✓ class added"
+        store.save()
+        self.app.notify(msg, title=title)
+        self.reload()
 
     def slash(self, cmd: str, arg: str) -> None:
         cmd = cmd.lower()

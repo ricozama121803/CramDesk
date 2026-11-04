@@ -368,3 +368,34 @@ def test_tab_completes_todo_numbers_weeks_and_days():
 def test_week_next_works():
     from cram.timeutil import parse_week
     assert parse_week("next", MON) == MON + timedelta(weeks=1)
+
+
+def test_swapped_add_todo_is_caught_not_saved_as_a_note():
+    cram("in", "--at", "10/14/26 9am")
+    r = cram("add", "todo", "review the statics notes/slides from mon and wednesday")
+    assert r.exit_code == 1 and "cram todo add" in r.output
+    assert Store.load().running().notes == [] and Store.load().todos == []
+
+
+def test_swapped_add_todo_in_a_terminal_offers_the_fix(monkeypatch):
+    monkeypatch.setattr(cli, "_tty", lambda: True)
+    cram("in", "--at", "10/14/26 9am")
+    r = cram("add", "todo", "review the statics notes", input="y\n")
+    assert r.exit_code == 0, r.output
+    assert [t.text for t in Store.load().todos] == ["review the statics notes"]
+    assert Store.load().running().notes == []
+    r = cram("add", "class", "Statics", input="y\n")
+    assert Store.load().classes == ["Statics"]
+
+
+def test_swapped_add_todo_answered_no_keeps_it_as_a_note(monkeypatch):
+    monkeypatch.setattr(cli, "_tty", lambda: True)
+    cram("in", "--at", "10/14/26 9am")
+    cram("add", "todo", "list for later", input="n\n")
+    assert Store.load().running().notes == ["todo list for later"] and Store.load().todos == []
+
+
+def test_quoted_note_starting_with_todo_is_just_a_note():
+    cram("in", "--at", "10/14/26 9am")
+    assert cram("add", "todo: ask about the quiz").exit_code == 0
+    assert Store.load().running().notes == ["todo: ask about the quiz"]

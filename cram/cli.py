@@ -257,6 +257,32 @@ def _split_class(store: Store, text: str) -> tuple[str | None, str]:
     return None, text
 
 
+_GROUPS = {"todo": "todo", "todos": "todo", "to-do": "todo", "class": "class", "classes": "class"}
+
+
+def _caught_swap(cmd: str, words: list[str] | None) -> bool:
+    """Catch `cram add todo "…"` meant as `cram todo add "…"` (same for class).
+
+    Only when the group name is its own word: `cram add "todo …"` (quoted) is a real note.
+    Returns True when it handled the command, so the caller should stop."""
+    if not words or len(words) < 2 or words[0].lower() not in _GROUPS:
+        return False
+    group, rest = _GROUPS[words[0].lower()], words[1:]
+    meant = f"cram {group} {cmd} " + " ".join(f'"{w}"' if " " in w else w for w in rest)
+    what = "a to-do for this week" if group == "todo" else "a class"
+    if not _tty():
+        _fail(f"Did you mean [b]{meant}[/]? That adds {what}.\n"
+              f"  To use '{words[0]}' as the first word of a note, quote it all: [b]cram {cmd} \"{words[0]} …\"[/]")
+    ui.warn(f"[b]cram {cmd} {words[0]} …[/] looks like it's in the wrong order.")
+    if Confirm.ask(Text(f"  Did you mean  {meant}  (adds {what})?", style=f"bold {ui.T.text}"), default=True):
+        if group == "todo":
+            todo_add(text=rest, week=None)
+        else:
+            class_add(name=rest)
+        return True
+    return False
+
+
 # ── clocking ─────────────────────────────────────────────────────────────────
 
 @app.command("in")
@@ -330,6 +356,8 @@ def add(
 
     When you're not studying, it asks which session from today or this week to add to."""
     store, _ = _load()
+    if not id and _caught_swap("add", text):
+        return
     if id:
         s = store.get(id)
         if not s:
