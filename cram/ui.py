@@ -11,7 +11,7 @@ from rich.table import Table
 from rich.text import Text
 
 from .report import Report
-from .store import Session, Store
+from .store import Session, Store, Todo
 from .timeutil import DAY_ABBR, fmt_hm, fmt_md, fmt_range, fmt_time, week_days
 
 console = Console(highlight=False)
@@ -254,7 +254,7 @@ def dashboard(store: Store, r: Report, cfg: dict, live: bool = False) -> Group:
 
     week = panel(
         Group(week_bars(store, r.monday, now), Text(""), class_bars(store.in_week(r.monday), now),
-              Text(""), totals_line(r)),
+              Text(""), totals_line(r), todo_summary(store, r.monday)),
         f"week {fmt_md(r.monday)} – {fmt_md(r.sunday)}",
     )
     return Group(top, week)
@@ -340,6 +340,42 @@ def classes_table(store: Store) -> Table:
                   Text(fmt_hm(sum(s.minutes() for s in mine)) if mine else "·", style=T.accent2),
                   Text(f"{DAY_ABBR[last.weekday()]} {fmt_md(last)}" if last else "never", style=T.dim))
     return t
+
+
+def todo_line(t: Todo, show_week: bool = False) -> Text:
+    """☐ #3  Linear Algebra  problem set 4"""
+    line = Text()
+    line.append("☑ " if t.done else "☐ ", style=T.ok if t.done else T.accent)
+    line.append(f"#{t.id:<3} ", style=T.dim)
+    if t.course:
+        line.append(f"{t.course}  ", style=T.dim if t.done else f"bold {T.accent2}")
+    line.append(t.text, style=f"{T.dim} strike" if t.done else T.text)
+    if show_week:
+        line.append(f"   from week of {fmt_md(t.week)}", style=T.faint)
+    return line
+
+
+def todo_summary(store: Store, monday: date) -> Text:
+    mine, older = store.todos_for(monday)
+    if not mine and not older:
+        return Text("")
+    done = sum(t.done for t in mine)
+    out = Text.assemble(("to-dos ", T.dim), (f"{done}/{len(mine)} done", f"bold {T.text}"))
+    if older:
+        out.append(f"   +{len(older)} open from earlier", style=T.warn)
+    return out
+
+
+def todo_list(store: Store, monday: date) -> Group:
+    mine, older = store.todos_for(monday)
+    parts: list = []
+    if not mine and not older:
+        return Group(Text('nothing to do yet. add one with  cram todo add "finish problem set 4"', style=T.dim))
+    parts += [todo_line(t) for t in mine] or [Text("nothing for this week yet", style=T.dim)]
+    if older:
+        parts += [Text(""), Text("still open from earlier weeks", style=f"bold {T.warn}")]
+        parts += [todo_line(t, show_week=True) for t in older]
+    return Group(*parts)
 
 
 def block_label(s: Session) -> str:

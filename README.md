@@ -43,6 +43,23 @@ cram edit 3 -c chemistry           # change a session's class
 In the app, type `in la` in the bottom bar, and use `/classes` to add or remove classes.
 The week panel and `cram v-week` show hours per class.
 
+## To-do
+
+Notes to self for the week: no reminders, just a list of what to do later.
+
+```sh
+cram todo add finish problem set 4
+cram todo add chem read ch 7        # starts with a class: tagged Chemistry
+cram todo add -w next study for midterm
+cram todo                           # this week's list (numbered)
+cram todo done 2                    # check it off (cram todo undo 2 un-checks it)
+cram todo rm 3
+cram todo clear                     # delete this week's checked-off ones
+```
+
+Anything you didn't finish shows up under "still open from earlier weeks", so nothing gets lost.
+In the app, type `/todo`. `enter` adds, `tab` moves to the list, `enter` or `space` checks off, `delete` removes.
+
 ## From the shell
 
 ```sh

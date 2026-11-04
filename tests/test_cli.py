@@ -307,3 +307,30 @@ def test_undo_takes_back_a_new_class():
     cram("class", "add", "Chemistry")
     assert "add class Chemistry" in cram("undo").output
     assert Store.load().classes == []
+
+
+def test_todo_add_list_done_and_carry_over():
+    cram("class", "add", "Chemistry")
+    assert "No to-do" not in cram("todo").output
+    cram("todo", "add", "chem", "read", "ch", "7")
+    cram("todo", "add", "-w", "last", "review", "notes")
+    cram("todo", "add", "-w", "last", "old", "finished", "thing")
+    cram("todo", "done", "3")
+    t = Store.load().get_todo(1)
+    assert t.course == "Chemistry" and t.text == "read ch 7"
+    r = cram("todo")
+    assert "read ch 7" in r.output and "still open from earlier weeks" in r.output
+    assert "review notes" in r.output and "old finished thing" not in r.output   # done ones stay in their week
+    assert cram("todo", "done", "1").exit_code == 0 and Store.load().get_todo(1).done
+    assert cram("todo", "undo", "1").exit_code == 0 and not Store.load().get_todo(1).done
+    assert cram("todo", "done", "42").exit_code == 1
+    assert cram("todo", "rm", "2").exit_code == 0 and Store.load().get_todo(2) is None
+    r = cram("todo", "clear", "-w", "last")
+    assert "Cleared 1" in r.output and Store.load().get_todo(3) is None
+
+
+def test_todo_shows_in_the_week_view_and_undo():
+    cram("todo", "add", "finish", "essay")
+    assert "to-do" in cram("v-week").output and "finish essay" in cram("v-week").output
+    assert "add to-do “finish essay”" in cram("undo").output
+    assert Store.load().todos == []

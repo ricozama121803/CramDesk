@@ -52,6 +52,10 @@ View a week's sessions with a timeline per day.
 A calendar of all your weeks. Up/down picks one;
 Enter opens its log.
 .TP
+.B /todo
+The week's to-do list. Enter adds; on the list, Enter or Space checks one off and Delete removes it;
+\fB[\fR and \fB]\fR switch weeks. Unfinished to-dos from earlier weeks are listed too.
+.TP
 .B /classes
 Add or remove your classes, with hours this week and in total.
 .TP
@@ -141,6 +145,12 @@ Studying or not, hours studied today, and the week; \fB\-W\fR keeps it live.
 .BR class " [\fBadd\fR \fIname\fR[, \fIname\fR...] | \fBrm\fR \fIname\fR | \fBrename\fR \fIold\fR \fInew\fR]"
 Manage your classes. On its own (or as \fBcram classes\fR) it lists them with hours this week, in total,
 and when you last studied each. Removing a class keeps it on past sessions, so no hours are lost.
+.TP
+.BR todo " [\fBadd\fR \fItext\fR | \fBdone\fR \fIn\fR... | \fBundo\fR \fIn\fR... | \fBrm\fR \fIn\fR... | \fBclear\fR] [\fB\-w\fR \fIweek\fR]"
+Notes to self for a week, with no reminders. On its own it lists the week's to-dos with their numbers,
+plus any left unfinished in earlier weeks. A to-do that starts with a class (\fBchem read ch 7\fR) is tagged
+with it. \fBdone\fR checks one off, \fBundo\fR un-checks it, \fBrm\fR deletes it, and \fBclear\fR deletes
+the week's checked-off ones.
 .TP
 .BR weeks " [\fB\-n\fR \fIcount\fR]"
 Recent weeks with hours studied and days studied.

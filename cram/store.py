@@ -59,15 +59,36 @@ class Session:
         )
 
 
+@dataclass
+class Todo:
+    """A note to self for a week. No reminders: just something to do later."""
+    id: int
+    text: str
+    week: date                      # the Monday of the week it's for
+    done: bool = False
+    course: str | None = None
+
+    def to_dict(self) -> dict:
+        return {"id": self.id, "text": self.text, "week": self.week.isoformat(), "done": self.done,
+                "class": self.course}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Todo":
+        return cls(id=d["id"], text=d["text"], week=date.fromisoformat(d["week"]),
+                   done=bool(d.get("done")), course=d.get("class") or None)
+
+
 class DataError(Exception):
     """The data file can't be read."""
 
 
 class Store:
-    def __init__(self, sessions: list[Session], next_id: int, classes: list[str] | None = None):
+    def __init__(self, sessions: list[Session], next_id: int, classes: list[str] | None = None,
+                 todos: list[Todo] | None = None):
         self.sessions = sessions
         self.next_id = next_id
         self.classes: list[str] = classes or []
+        self.todos: list[Todo] = todos or []
 
     # ── io ──
     @classmethod
@@ -93,7 +114,11 @@ class Store:
             print(f"cram: {path.name} was damaged, restored the backup (damaged copy kept as {broken.name})",
                   file=sys.stderr)
         next_id = raw.get("next_id") or (max((s.id for s in sessions), default=0) + 1)
-        return cls(sessions, next_id, [c for c in raw.get("classes", []) if isinstance(c, str)])
+        try:
+            todos = [Todo.from_dict(t) for t in raw.get("todos", [])]
+        except (ValueError, KeyError, TypeError):
+            todos = []
+        return cls(sessions, next_id, [c for c in raw.get("classes", []) if isinstance(c, str)], todos)
 
     def save(self, record: bool = True) -> None:
         path = data_file()
@@ -101,6 +126,7 @@ class Store:
             "version": 1,
             "next_id": self.next_id,
             "classes": self.classes,
+            "todos": [t.to_dict() for t in self.todos],
             "sessions": [s.to_dict() for s in sorted(self.sessions, key=lambda s: s.start)],
         }
         text = json.dumps(payload, indent=2)
@@ -151,6 +177,33 @@ class Store:
             if start < s_end and s.start < end:
                 return s
         return None
+
+    # ── todos ──
+    def add_todo(self, text: str, week: date) -> Todo:
+        text = " ".join(text.split())
+        if not text:
+            raise ValueError("a to-do needs some text")
+        course, rest = self.match_class(text)
+        if course and rest:                 # "la problem set 4" -> Linear Algebra: problem set 4
+            text = rest
+        else:
+            course = None
+        t = Todo(max((x.id for x in self.todos), default=0) + 1, text, week_start(week), course=course)
+        self.todos.append(t)
+        return t
+
+    def get_todo(self, tid: int) -> Todo | None:
+        return next((t for t in self.todos if t.id == tid), None)
+
+    def remove_todo(self, tid: int) -> None:
+        self.todos = [t for t in self.todos if t.id != tid]
+
+    def todos_for(self, monday: date) -> tuple[list[Todo], list[Todo]]:
+        """(this week's to-dos, unfinished ones from earlier weeks that are still open)."""
+        mine = [t for t in self.todos if t.week == monday]
+        older = [t for t in self.todos if t.week < monday and not t.done]
+        key = lambda t: (t.done, t.id)
+        return sorted(mine, key=key), sorted(older, key=lambda t: (t.week, t.id))
 
     # ── classes ──
     def find_class(self, name: str) -> str | None:

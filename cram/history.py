@@ -126,6 +126,17 @@ def describe(before: str | None, after: str | None) -> str:
                 changes.append(f"remove “{_short(removed[0])}”")
             else:
                 changes.append(f"edit description on {_block(new)}")
+    ta = {t["id"]: t for t in (json.loads(before).get("todos", []) if before else [])}
+    tb = {t["id"]: t for t in (json.loads(after).get("todos", []) if after else [])}
+    for tid in tb.keys() - ta.keys():
+        changes.append(f"add to-do “{_short(tb[tid]['text'])}”")
+    for tid in ta.keys() - tb.keys():
+        changes.append(f"remove to-do “{_short(ta[tid]['text'])}”")
+    for tid in ta.keys() & tb.keys():
+        if ta[tid].get("done") != tb[tid].get("done"):
+            changes.append(("check off" if tb[tid].get("done") else "uncheck") + f" “{_short(tb[tid]['text'])}”")
+        elif ta[tid] != tb[tid]:
+            changes.append(f"edit to-do “{_short(tb[tid]['text'])}”")
     ca = json.loads(before).get("classes", []) if before else []
     cb = json.loads(after).get("classes", []) if after else []
     added, gone = [c for c in cb if c not in ca], [c for c in ca if c not in cb]

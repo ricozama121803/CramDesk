@@ -52,6 +52,7 @@ SHORTCUTS = [
     ("  undo / redo", "take back your last change (or put it back)"),
     ("  /vday [day]", "view a day           /vday yesterday"),
     ("  /vweek [week]", "view the week's times  /vweek last"),
+    ("  /todo", "the week's to-dos (notes to self)"),
     ("  /classes", "add or remove your classes"),
     ("  /weeks", "calendar of weeks: ↑↓ pick · enter open"),
     ("  /config", "color theme"),
@@ -670,6 +671,7 @@ def read_heartbeat() -> dict | None:
 SLASH = [
     ("/vday", "view a day's sessions", "/vday yesterday"),
     ("/vweek", "view the week's times", "/vweek last"),
+    ("/todo", "the week's to-dos: add, check off", ""),
     ("/classes", "add or remove your classes", ""),
     ("/weeks", "pick any week on a calendar", ""),
     ("/config", "color theme", ""),
@@ -1118,6 +1120,112 @@ class ClassesScreen(ModalScreen[bool]):
         self.dismiss(True)
 
 
+class TodoScreen(ModalScreen[bool]):
+    """The week's to-dos: type + enter adds one; on the list, enter/space checks it off, delete removes it."""
+
+    BINDINGS = [
+        Binding("escape", "close", "close"),
+        Binding("delete", "remove", "remove", show=False),
+        Binding("space", "toggle", "check off", show=False),
+        Binding("left_square_bracket", "week(-1)", "prev week", show=False),
+        Binding("right_square_bracket", "week(1)", "next week", show=False),
+    ]
+
+    def __init__(self, monday: date | None = None):
+        super().__init__()
+        self.monday = monday or week_start(date.today())
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="dialog") as v:
+            v.border_title = "to-do"
+            yield Static(id="todohead")
+            yield OptionList(id="todolist")
+            yield Label("add a to-do  (start with a class to tag it: la problem set 4)", classes="field")
+            yield Input(id="newtodo", placeholder="e.g. finish problem set 4, then enter")
+            yield Static(id="error")
+            yield Static(Text.assemble(("enter", "bold"), " adds · ", ("tab", "bold"), " to the list: ",
+                                       ("enter", "bold"), " check off, ", ("delete", "bold"), " remove · ",
+                                       ("[ ]", "bold"), " weeks · ", ("esc", "bold"), " close",
+                                       style=ui.T.muted), id="hint")
+
+    def on_mount(self) -> None:
+        self.reload()
+        self.query_one("#newtodo").focus()
+
+    def reload(self) -> None:
+        store = Store.load()
+        mine, older = store.todos_for(self.monday)
+        self.query_one("#dialog").border_title = (
+            f"to-do · week {fmt_md(self.monday)} – {fmt_md(self.monday + timedelta(days=6))}")
+        ol = self.query_one("#todolist", OptionList)
+        keep = ol.highlighted
+        ol.clear_options()
+        for t in mine:
+            ol.add_option(Option(ui.todo_line(t), id=str(t.id)))
+        if older:
+            ol.add_option(Option(Text("still open from earlier weeks", style=f"bold {ui.T.warn}"), disabled=True))
+            for t in older:
+                ol.add_option(Option(ui.todo_line(t, show_week=True), id=str(t.id)))
+        ol.display = bool(mine or older)
+        if ol.option_count:
+            ol.highlighted = min(keep or 0, ol.option_count - 1)
+        summary = ui.todo_summary(store, self.monday)
+        self.query_one("#todohead", Static).update(
+            summary if summary.plain else Text("Nothing to do yet. Notes to self go here: no reminders.", style=ui.T.dim))
+
+    def _selected(self):
+        ol = self.query_one("#todolist", OptionList)
+        if self.focused is not ol or ol.highlighted is None:
+            return None
+        opt = ol.get_option_at_index(ol.highlighted)
+        return int(opt.id) if opt.id else None
+
+    @on(Input.Submitted, "#newtodo")
+    def _add(self, ev: Input.Submitted) -> None:
+        if not ev.value.strip():
+            self.action_close()
+            return
+        store = Store.load()
+        t = store.add_todo(ev.value, self.monday)
+        store.save()
+        ev.input.value = ""
+        self.query_one("#error", Static).update(Text.assemble(("✓ added ", f"bold {ui.T.ok}"), ui.todo_line(t)))
+        self.reload()
+
+    @on(OptionList.OptionSelected, "#todolist")
+    def _picked(self) -> None:
+        self.action_toggle()
+
+    def action_toggle(self) -> None:
+        tid = self._selected()
+        if tid is None:
+            return
+        store = Store.load()
+        t = store.get_todo(tid)
+        t.done = not t.done
+        store.save()
+        self.reload()
+
+    def action_remove(self) -> None:
+        tid = self._selected()
+        if tid is None:
+            return
+        store = Store.load()
+        t = store.get_todo(tid)
+        store.remove_todo(tid)
+        store.save()
+        self.query_one("#error", Static).update(Text(f"removed “{t.text}” (ctrl+z in the main screen undoes it)",
+                                                     style=ui.T.muted))
+        self.reload()
+
+    def action_week(self, delta: int) -> None:
+        self.monday += timedelta(weeks=delta)
+        self.reload()
+
+    def action_close(self) -> None:
+        self.dismiss(True)
+
+
 class ObPage(Static, can_focus=True):
     """A setup page with nothing to type: enter moves on."""
 
@@ -1179,6 +1287,7 @@ class OnboardingScreen(ModalScreen[bool]):
             ("out", "stop: review the session and save it"),
             ("tab", "switch between the bottom bar and the top section"),
             ("arrows", "move between your notes, today and the week"),
+            ("/todo", "notes to self for the week"),
             ("/", "views: a day, the week, any past week"),
             ("ctrl+p", "command palette: everything else"),
             ("f1", "every shortcut"),
@@ -1567,7 +1676,8 @@ class MainScreen(Screen):
         week.set_class(run is not None, "unsaved")
         bar_w = max(4, min(26, (week.content_size.width or 56) - 30))
         week.update(Group(ui.week_bars(store, r.monday, at, width=bar_w), Text(""),
-                          ui.class_bars(store.in_week(r.monday), at, width=max(4, bar_w - 6)), Text(""), ui.totals_line(r)))
+                          ui.class_bars(store.in_week(r.monday), at, width=max(4, bar_w - 6)), Text(""), ui.totals_line(r),
+                          ui.todo_summary(store, r.monday)))
         self._status(run, r)
 
     def _status(self, run: Session | None, r: report.Report) -> None:
@@ -1775,6 +1885,8 @@ class MainScreen(Screen):
                 self.action_config()
             elif cmd == "/classes":
                 self.action_classes()
+            elif cmd == "/todo":
+                self.action_todo()
             elif cmd == "/help":
                 self.action_keys()
             else:
@@ -1861,6 +1973,9 @@ class MainScreen(Screen):
                 self.app.notify(f"theme {self.cfg['ui']['theme']}", title="✓ config saved")
         self.app.push_screen(ConfigScreen(self.cfg), done)
 
+    def action_todo(self) -> None:
+        self.app.push_screen(TodoScreen(), lambda _: self.reload())
+
     def action_classes(self) -> None:
         self.app.push_screen(ClassesScreen(), lambda _: self.reload())
 
@@ -1890,6 +2005,7 @@ class CramCommands(Provider):
             ("Pick a week…", "/weeks · open any past week", lambda: app.push_screen(WeekPicker())),
             ("Undo", "ctrl+z · or type undo", app.action_undo),
             ("Redo", "ctrl+y · or type redo", app.action_redo),
+            ("To-do list", "/todo · notes to self for the week", main.action_todo),
             ("Classes", "/classes · add or remove your classes", main.action_classes),
             ("Config: color theme", "/config", main.action_config),
             ("Add a past session", "forgot to start studying? log it here", lambda: app.push_screen(
@@ -1963,7 +2079,7 @@ class CramApp(App):
     #cmd { border: none; height: 1; padding: 0; background: transparent; }
     #status { height: 1; padding: 0 3; }
 
-    BlockEditor, Confirm, KeysSheet, ConfigScreen, ClassesScreen, RecoverScreen, QuitScreen, ConflictScreen, OnboardingScreen {
+    BlockEditor, Confirm, KeysSheet, ConfigScreen, ClassesScreen, TodoScreen, RecoverScreen, QuitScreen, ConflictScreen, OnboardingScreen {
         align: center middle; background: $background 60%;
     }
     #dialog {
@@ -1984,6 +2100,10 @@ class CramApp(App):
     .field { color: $text-muted; margin-top: 1; }
     #quitopts { height: auto; margin-top: 1; background: transparent; border: none; }
     #quitopts > .option-list--option-highlighted { background: $primary 35%; text-style: none; }
+    #todolist { height: auto; max-height: 18; background: transparent; border: round $foreground 20%; }
+    #todolist:focus { border: round $accent; }
+    #newtodo { border: tall $foreground 20%; background: transparent; }
+    #newtodo:focus { border: tall $accent; }
     #classlist { height: auto; max-height: 14; background: transparent; border: round $foreground 20%; }
     #classlist:focus { border: round $accent; }
     #newclass, #ob-class { border: tall $foreground 20%; background: transparent; }

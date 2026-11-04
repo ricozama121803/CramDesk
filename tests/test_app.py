@@ -345,3 +345,39 @@ def test_class_set_in_the_editor_when_stopping():
         s = Store.load().sessions[0]
         assert s.end is not None and s.course == "Chemistry"
     run(script)
+
+
+def test_todo_screen_add_check_off_and_remove():
+    from datetime import date, timedelta as td
+    from cram.timeutil import week_start
+    from cram.tui import TodoScreen
+    with_classes("Linear Algebra")
+    st = Store.load()
+    st.add_todo("review notes", week_start(date.today()) - td(weeks=1))   # left open last week
+    st.save()
+    async def script(app, pilot):
+        await type_(pilot, "/todo")
+        assert isinstance(app.screen, TodoScreen)
+        await type_(pilot, "la finish problem set 4")
+        await type_(pilot, "email the TA")
+        st = Store.load()
+        t = next(t for t in st.todos if t.text == "finish problem set 4")
+        assert t.course == "Linear Algebra" and not t.done
+        ol = app.screen.query_one("#todolist")
+        ol.focus(); await pilot.pause()
+        ol.highlighted = 0
+        await pilot.press("enter"); await pilot.pause()                   # check off the first one
+        assert sum(t.done for t in Store.load().todos) == 1
+        done_id = next(str(t.id) for t in Store.load().todos if t.done)   # checked ones sink to the bottom
+        ol.highlighted = next(i for i in range(ol.option_count) if ol.get_option_at_index(i).id == done_id)
+        await pilot.press("space"); await pilot.pause()                   # and back
+        assert sum(t.done for t in Store.load().todos) == 0
+        ol.highlighted = ol.option_count - 1                               # the carried-over one
+        await pilot.press("delete"); await pilot.pause()
+        assert [t.text for t in Store.load().todos] == ["finish problem set 4", "email the TA"]
+        await pilot.press("escape"); await pilot.pause()
+        assert not isinstance(app.screen, TodoScreen)
+        w = app.main.query_one("#week")
+        shown = "".join(seg.text for line in w.render_lines(w.region.reset_offset) for seg in line)
+        assert "to-dos 0/2 done" in shown and "+1 open from earlier" not in shown
+    run(script)

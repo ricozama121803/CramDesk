@@ -466,6 +466,9 @@ def view_week(week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK
         parts += [Text(""), Text("by class", style=f"bold {ui.T.accent}"), ui.class_bars(store.in_week(monday)),
                   Text(""), ui.sessions_table(store, monday)]
     parts += [Text(""), ui.totals_line(r)]
+    mine, older = store.todos_for(monday)
+    if mine or older:
+        parts += [Text(""), Text("to-do", style=f"bold {ui.T.accent}"), ui.todo_list(store, monday)]
     ui.console.print(ui.panel(Group(*parts), f"week {fmt_md(r.monday)} – {fmt_md(r.sunday)}"))
 
 
@@ -582,6 +585,92 @@ def class_rename(old: str = typer.Argument(..., help="Current name (quote it if 
         _fail(str(e).capitalize() + ".")
     store.save()
     ui.ok(f"Renamed to [b]{name}[/].")
+
+
+# ── to-dos ───────────────────────────────────────────────────────────────────
+
+todo_app = typer.Typer(help="Notes to self for the week (no reminders). [b]cram todo add finish problem set 4[/], "
+                            "done, undo, rm, or just [b]cram todo[/] to see the list.",
+                       rich_markup_mode="rich", invoke_without_command=True, no_args_is_help=False)
+app.add_typer(todo_app, name="todo")
+
+
+@todo_app.callback()
+def _todo_root(ctx: typer.Context, week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_HELP)):
+    if ctx.invoked_subcommand is None:
+        _show_todos(parse_week(week))
+
+
+def _show_todos(monday: date) -> None:
+    store, _ = _load()
+    title = f"to-do · week {fmt_md(monday)} – {fmt_md(monday + timedelta(days=6))}"
+    ui.console.print(ui.panel(ui.todo_list(store, monday), title, subtitle=ui.todo_summary(store, monday) or None))
+
+
+def _todo_ids(store: Store, ids: list[int]):
+    found = []
+    for i in ids:
+        t = store.get_todo(i)
+        if not t:
+            _fail(f"No to-do #{i}. [b]cram todo[/] shows the numbers.")
+        found.append(t)
+    return found
+
+
+@todo_app.command("add")
+def todo_add(text: list[str] = typer.Argument(..., help="What to do. Start with a class to tag it: la problem set 4."),
+             week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_HELP)):
+    """Add a to-do for this week (or another with -w). [dim]e.g. cram todo add chem read ch 7[/]"""
+    store, _ = _load()
+    monday = parse_week(week)
+    try:
+        t = store.add_todo(" ".join(text), monday)
+    except ValueError:
+        _fail('Give it some text: [b]cram todo add "finish problem set 4"[/]')
+    store.save()
+    ui.console.print(Text("  ") + ui.todo_line(t))
+
+
+@todo_app.command("done")
+def todo_done(ids: list[int] = typer.Argument(..., help="The to-do number(s), from cram todo.")):
+    """Check off to-dos. [dim]e.g. cram todo done 2 3[/]"""
+    store, _ = _load()
+    for t in _todo_ids(store, ids):
+        t.done = True
+        ui.console.print(Text("  ") + ui.todo_line(t))
+    store.save()
+
+
+@todo_app.command("undo")
+def todo_undo(ids: list[int] = typer.Argument(..., help="The to-do number(s) to un-check.")):
+    """Un-check to-dos you checked off by mistake."""
+    store, _ = _load()
+    for t in _todo_ids(store, ids):
+        t.done = False
+        ui.console.print(Text("  ") + ui.todo_line(t))
+    store.save()
+
+
+@todo_app.command("rm")
+def todo_rm(ids: list[int] = typer.Argument(..., help="The to-do number(s) to delete.")):
+    """Delete to-dos."""
+    store, _ = _load()
+    for t in _todo_ids(store, ids):
+        store.remove_todo(t.id)
+        ui.ok(f"Removed “{t.text}”")
+    store.save()
+
+
+@todo_app.command("clear")
+def todo_clear(week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_HELP)):
+    """Delete the checked-off to-dos for a week."""
+    store, _ = _load()
+    monday = parse_week(week)
+    gone = [t for t in store.todos if t.week == monday and t.done]
+    for t in gone:
+        store.remove_todo(t.id)
+    store.save()
+    ui.ok(f"Cleared {len(gone)} checked-off to-do{'s' if len(gone) != 1 else ''}.")
 
 
 # ── misc ─────────────────────────────────────────────────────────────────────
