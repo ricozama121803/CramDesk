@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from pathlib import Path
 import sys
 from datetime import date, datetime, timedelta
 
@@ -53,10 +52,8 @@ SHORTCUTS = [
     ("  undo / redo", "take back your last change (or put it back)"),
     ("  /vday [day]", "view a day           /vday yesterday"),
     ("  /vweek [week]", "view the week's times  /vweek last"),
-    ("  /previewLogs [week]", "preview the log + invoice PDF"),
-    ("  /exportLogs [week]", "save the PDF to your export folder"),
-    ("  /weeks", "calendar of weeks: ↑↓ pick · p preview · e export · a approve"),
-    ("  /config", "rate, theme, export folder, file names"),
+    ("  /weeks", "calendar of weeks: ↑↓ pick · enter open"),
+    ("  /config", "color theme"),
     ("", ""),
     ("tab", "switch between the prompt bar and the top section"),
     ("arrows (top section)", "move between items, working on, today and week"),
@@ -65,9 +62,9 @@ SHORTCUTS = [
     ("ctrl+s", "punch in / punch out"),
     ("ctrl+z · ctrl+y", "undo · redo"),
     ("ctrl+n", "jump to the working-on box"),
-    ("ctrl+p", "command palette: approve, export, everything else"),
+    ("ctrl+p", "command palette: everything else"),
     ("ctrl+t", "fix the last block's times"),
-    ("ctrl+l · f5", "week log · PDF preview"),
+    ("ctrl+l", "week log"),
     ("ctrl+b", "toggle the side panels"),
     ("ctrl+q", "quit"),
     ("", ""),
@@ -317,12 +314,6 @@ class BlockEditor(ModalScreen[bool]):
         if en > now() + timedelta(minutes=1):
             self._error("that ends in the future")
             return None
-        store = Store.load()
-        s = store.get(self.sid) if self.sid else None
-        for monday in {week_start(st.date())} | ({s.week} if s else set()):
-            if store.is_approved(monday):
-                self._error(f"the week of {fmt_md(monday)} is approved and locked")
-                return None
         return st, en
 
     def _commit(self, st: datetime, en: datetime, then) -> None:
@@ -368,9 +359,6 @@ class BlockEditor(ModalScreen[bool]):
         store = Store.load()
         s = store.get(self.sid)
         if s is None:
-            return
-        if store.is_approved(s.week):
-            self._error(f"the week of {fmt_md(s.week)} is approved and locked")
             return
         s.notes = list(self.items)
         store.save()
@@ -535,7 +523,7 @@ class LogScreen(Screen):
         box = self.query_one("#logbox")
         box.border_title = f"week {fmt_md(r.monday)} – {fmt_md(r.sunday)}   [ ] to switch weeks"
         live = any(s.running for s in store.in_week(self.monday))
-        box.border_subtitle = "● block in progress" if live else ("approved 🔒" if r.approved else "pending approval")
+        box.border_subtitle = "● session in progress" if live else ""
         box.set_class(live, "unsaved")
         t = self.query_one(DataTable)
         t.clear()
@@ -609,9 +597,6 @@ class LogScreen(Screen):
             if not yes:
                 return
             store = Store.load()
-            if store.is_approved(s.week):
-                self.app.notify("That week is approved and locked.", severity="error")
-                return
             store.remove(s.id)
             store.save()
             self.reload()
@@ -650,10 +635,8 @@ def read_heartbeat() -> dict | None:
 SLASH = [
     ("/vday", "view a day's blocks", "/vday yesterday"),
     ("/vweek", "view the week's times", "/vweek last"),
-    ("/previewLogs", "preview the week's log + invoice PDF", "/previewLogs last"),
-    ("/exportLogs", "save the PDF to your export folder", "/exportLogs last"),
-    ("/weeks", "pick any week on a calendar: preview, export, approve", ""),
-    ("/config", "rate, theme, export folder, file names", ""),
+    ("/weeks", "pick any week on a calendar", ""),
+    ("/config", "color theme", ""),
     ("/help", "commands and shortcuts", ""),
 ]
 WORDS = [("in", "punch in", "in fixing the scraper"), ("out", "punch out", "")]
@@ -741,14 +724,11 @@ class FocusPanel(Static, can_focus=True):
 # ── view screens ─────────────────────────────────────────────────────────────
 
 class WeekPicker(Screen):
-    """A calendar of weeks: ↑↓ to pick one, then preview / export / approve it."""
+    """A calendar of weeks: ↑↓ to pick one, enter to open its log."""
 
     BINDINGS = [
         Binding("escape", "app.pop_screen", "back"),
         Binding("q", "app.pop_screen", "back", show=False),
-        Binding("p", "act('preview')", "preview"),
-        Binding("e", "act('export')", "export"),
-        Binding("a", "act('approve')", "approve"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -803,12 +783,6 @@ class WeekPicker(Screen):
                     style += " underline"
                 row.append(f"{d.day:>3}", style=style)
             row.append(f"   {fmt_hm(r.total_minutes) if r.total_minutes else '·':>8}", style=ui.T.text)
-            if r.approved:
-                rec = store.approval(monday) or {}
-                status = ("✓ exported" if rec.get("exports") else "✓ approved") + f"  #{r.invoice_number}"
-                row.append(f"   {status}", style=ui.T.ok)
-            elif r.days:
-                row.append("   ◌ pending", style=ui.T.warn)
             opts.append(Option(row, id=monday.isoformat()))
         ol.clear_options()
         ol.add_options(opts)
@@ -816,7 +790,7 @@ class WeekPicker(Screen):
         head = Text(f"{'':<5}", style=ui.T.dim)
         for name in ("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"):
             head.append(f"{name:>3}", style=f"bold {ui.T.muted}")
-        head.append(f"   {'hours':>8}   status", style=f"bold {ui.T.muted}")
+        head.append(f"   {'hours':>8}", style=f"bold {ui.T.muted}")
         self.query_one("#weekhead", Static).update(head)
         self._info()
 
@@ -844,21 +818,6 @@ class WeekPicker(Screen):
         m = self.selected()
         if m:
             self.app.push_screen(LogScreen(m))
-
-    def action_act(self, what: str) -> None:
-        m = self.selected()
-        if m is None:
-            return
-        if not Store.load().in_week(m):
-            self.app.notify(f"Nothing logged for the week of {fmt_md(m)}.", severity="warning")
-            return
-        if what == "preview":
-            self.app.run_cli("preview", "-w", m.isoformat())
-        elif what == "export":
-            self.app.main.export_logs(m.isoformat())
-        elif what == "approve":
-            self.app.run_cli("approve", "-w", m.isoformat())
-        self.reload()
 
 
 class DayScreen(Screen):
@@ -907,10 +866,7 @@ class DayScreen(Screen):
         n = len(blocks)
         box_.border_title = (f"{DAY_ABBR[self.day.weekday()]} {fmt_mdy(self.day)}  ·  {fmt_hm(total)}"
                              f"  ·  {n} block{'s' if n != 1 else ''}")
-        if store.is_approved(week_start(self.day)):
-            box_.border_subtitle = "approved 🔒 (read only)"
-        else:
-            box_.border_subtitle = "● block in progress" if live else "enter to edit a block"
+        box_.border_subtitle = "● session in progress" if live else "enter to edit a session"
         box_.set_class(live, "unsaved")
 
         t = self.query_one(DataTable)
@@ -985,14 +941,17 @@ class DayScreen(Screen):
             if not yes:
                 return
             store = Store.load()
-            if store.is_approved(s.week):
-                self.app.notify("That week is approved and locked.", severity="error")
-                return
             store.remove(s.id)
             store.save()
             self._edited(False)
 
         self.app.push_screen(Confirm(f"Delete block {fmt_range(s.start, s.end)} on {fmt_md(s.day)}?"), done)
+
+
+def _theme_options() -> list[Option]:
+    return [Option(Text.assemble((f"{name:<12}", f"bold {ui.THEMES[name]['text']}"),
+                                 *[("██", c) for c in ui.ramp(6, ui.THEMES[name]["grad"])]), id=name)
+            for name in ui.THEMES]
 
 
 class ConfigScreen(ModalScreen[bool]):
@@ -1010,82 +969,29 @@ class ConfigScreen(ModalScreen[bool]):
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog") as v:
             v.border_title = "config"
-            yield Label("hourly rate ($)", classes="field")
-            yield Input(f"{float(self.cfg['invoice']['rate']):g}", id="rate", placeholder="25")
             yield Label("color theme  (↑↓ previews)", classes="field")
-            yield OptionList(*[
-                Option(Text.assemble((f"{name:<12}", f"bold {ui.THEMES[name]['text']}"),
-                                     *[("██", c) for c in ui.ramp(6, ui.THEMES[name]["grad"])]), id=name)
-                for name in ui.THEMES
-            ], id="themes")
-            yield Label("export folder", classes="field")
-            yield Input(self.cfg["export"]["dir"], id="folder", placeholder="~/Documents/cram")
-            yield Label("file names  (example for this week)", classes="field")
-            yield OptionList(*self._naming_options(), id="naming")
+            yield OptionList(*_theme_options(), id="themes")
             yield Static(id="error")
-            yield Static(Text.assemble(("enter", "bold"), " next · ", ("ctrl+s", "bold"), " save · ",
-                                       ("esc", "bold"), " cancel · ", ("ctrl+o", "bold"),
-                                       " full config file (name, client, address…)"), id="hint")
-
-    def _naming_options(self) -> list[Option]:
-        r = report.build(Store.load(), self.cfg, week_start(date.today()))
-        current = self.cfg["export"]["filename"]
-        patterns = list(report.NAMING_PRESETS)
-        if current not in patterns:
-            patterns.insert(0, current)
-        self.patterns = patterns
-        return [Option(Text.assemble((report.export_filename(self.cfg, r, pat), f"bold {ui.T.text}"),
-                                     ("   custom" if pat not in report.NAMING_PRESETS else "", ui.T.dim)), id=str(i))
-                for i, pat in enumerate(patterns)]
+            yield Static(Text.assemble(("enter", "bold"), " save · ", ("esc", "bold"), " cancel · ",
+                                       ("ctrl+o", "bold"), " full config file"), id="hint")
 
     def on_mount(self) -> None:
         ol = self.query_one("#themes", OptionList)
         names = list(ui.THEMES)
         ol.highlighted = names.index(self.theme0) if self.theme0 in names else 0
-        self.query_one("#naming", OptionList).highlighted = self.patterns.index(self.cfg["export"]["filename"])
-        self.query_one("#rate", Input).focus()
+        ol.focus()
 
     @on(OptionList.OptionHighlighted, "#themes")
     def _preview(self, ev: OptionList.OptionHighlighted) -> None:
         self.app.apply_theme(ev.option.id)
 
-    @on(Input.Submitted, "#rate")
-    def _rate_done(self) -> None:
-        self.query_one("#themes").focus()
-
     @on(OptionList.OptionSelected, "#themes")
     def _theme_done(self) -> None:
-        self.query_one("#folder").focus()
-
-    @on(Input.Submitted, "#folder")
-    def _folder_done(self) -> None:
-        self.query_one("#naming").focus()
-
-    @on(OptionList.OptionSelected, "#naming")
-    def _picked(self) -> None:
         self.action_save()
 
     def action_save(self) -> None:
-        try:
-            rate = float(self.query_one("#rate", Input).value.strip().lstrip("$"))
-            if rate <= 0:
-                raise ValueError
-        except ValueError:
-            self.query_one("#error", Static).update(Text("✗ the rate should be a number, like 25", style=f"bold {ui.T.err}"))
-            return
         ol = self.query_one("#themes", OptionList)
-        theme = ol.get_option_at_index(ol.highlighted).id
-        folder = self.query_one("#folder", Input).value.strip() or "~/Documents/cram"
-        try:
-            Path(folder).expanduser().mkdir(parents=True, exist_ok=True)
-        except OSError as e:
-            self.query_one("#error", Static).update(Text(f"✗ can't use that folder: {e.strerror}", style=f"bold {ui.T.err}"))
-            return
-        naming = self.query_one("#naming", OptionList)
-        config_mod.set_value("invoice", "rate", rate)
-        config_mod.set_value("ui", "theme", theme)
-        config_mod.set_value("export", "dir", folder)
-        config_mod.set_value("export", "filename", self.patterns[naming.highlighted or 0])
+        config_mod.set_value("ui", "theme", ol.get_option_at_index(ol.highlighted or 0).id)
         self.dismiss(True)
 
     def action_cancel(self) -> None:
@@ -1104,42 +1010,21 @@ class ObPage(Static, can_focus=True):
 
 
 class OnboardingScreen(ModalScreen[bool]):
-    """First-run setup: who you are, who you bill, your rate and theme, then a quick tour.
-    Every step is saved as you go; esc skips the rest (it's all in /config later)."""
+    """First-run setup: a welcome, pick a color theme, then a quick tour.
+    esc skips the rest (the theme is in /config later)."""
 
     AUTO_FOCUS = None
     BINDINGS = [
         Binding("escape", "skip", "skip setup"),
         Binding("ctrl+s", "next", "next", show=False),
     ]
-    # step id, title, the inputs on it: (config section, key, label, placeholder)
-    STEPS = [
-        ("welcome", "welcome", []),
-        ("you", "about you · goes on your log and invoice", [
-            ("you", "name", "your name", "Alex Rivera"),
-            ("you", "title", "your title  (log header reads Name-Title)", "Contractor"),
-            ("you", "email", "your email", "you@example.com"),
-            ("you", "paypal", "paypal handle  (optional, leave blank to hide it)", "@yourhandle"),
-        ]),
-        ("client", "who you bill", [
-            ("client", "name", "client name", "Client Co"),
-            ("client", "email", "client billing email", "billing@example.com"),
-            ("invoice", "role", "what you do for them  (first line of the invoice)", "Software Contractor"),
-        ]),
-        ("rate", "rate and look", [
-            ("invoice", "rate", "hourly rate ($)", "25"),
-        ]),
-        ("tour", "you're set", []),
-    ]
+    STEPS = [("welcome", "welcome"), ("look", "pick a look"), ("tour", "you're set")]
 
     def __init__(self, cfg: dict):
         super().__init__()
         self.cfg = cfg
         self.step = 0
         self.theme0 = cfg["ui"].get("theme", "catppuccin")
-
-    def _field_id(self, sec: str, key: str) -> str:
-        return f"ob-{sec}-{key}"
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog", classes="onboard") as v:
@@ -1148,28 +1033,13 @@ class OnboardingScreen(ModalScreen[bool]):
                 yield Static(ui.banner(), id="ob-banner")
                 yield ObPage(Text.assemble(
                     ("Welcome! ", f"bold {ui.T.accent}"),
-                    ("cram is a time clock for your terminal. Punch in, jot down what you're working on, "
-                     "punch out, and every week turns into a work log + invoice PDF.\n\n", ui.T.text),
-                    ("Let's fill in what goes on that invoice. It takes about a minute, "
-                     "and you can change all of it later with ", ui.T.muted), ("/config", f"bold {ui.T.text}"),
-                    (".", ui.T.muted)))
-            for sid, _title, fields in self.STEPS[1:-1]:
-                with Vertical(id=f"ob-{sid}", classes="ob-step"):
-                    for sec, key, label, ph in fields:
-                        cur = self.cfg[sec].get(key, "")
-                        default = config_mod.defaults()[sec].get(key)
-                        value = "" if cur == default or cur is None else str(cur)
-                        if key == "rate":
-                            value = f"{float(cur):g}"
-                        yield Label(label, classes="field")
-                        yield Input(value, id=self._field_id(sec, key), placeholder=ph, classes="ob-input")
-                    if sid == "rate":
-                        yield Label("color theme  (↑↓ previews)", classes="field")
-                        yield OptionList(*[
-                            Option(Text.assemble((f"{name:<12}", f"bold {ui.THEMES[name]['text']}"),
-                                                 *[("██", c) for c in ui.ramp(6, ui.THEMES[name]["grad"])]), id=name)
-                            for name in ui.THEMES
-                        ], id="themes")
+                    ("cram is a study clock for your terminal. Start a session, jot down what you're "
+                     "studying, stop, and see how many hours you put in each day and week.\n\n", ui.T.text),
+                    ("Setup is one step: pick a color theme. You can change it later with ", ui.T.muted),
+                    ("/config", f"bold {ui.T.text}"), (".", ui.T.muted)))
+            with Vertical(id="ob-look", classes="ob-step"):
+                yield Label("color theme  (↑↓ previews)", classes="field")
+                yield OptionList(*_theme_options(), id="themes")
             with Vertical(id="ob-tour", classes="ob-step"):
                 yield ObPage()
             yield Static(id="error")
@@ -1181,13 +1051,13 @@ class OnboardingScreen(ModalScreen[bool]):
         t.add_column(style=f"bold {ui.T.accent}", no_wrap=True)
         t.add_column(style=ui.T.text)
         for k, v in [
-            ("in", "type it in the bar at the bottom to punch in"),
-            ("working on", "list what you're doing as you go; it becomes the log"),
-            ("out", "punch out: review the block and save it"),
+            ("in", "type it in the bar at the bottom to start studying"),
+            ("working on", "list what you're covering as you go; it becomes the log"),
+            ("out", "stop: review the session and save it"),
             ("tab", "switch between the bottom bar and the top section"),
-            ("arrows", "move between your items, today and the week"),
-            ("/", "views: a day, the week, preview or export the PDF"),
-            ("ctrl+p", "command palette: approve a week and everything else"),
+            ("arrows", "move between your notes, today and the week"),
+            ("/", "views: a day, the week, any past week"),
+            ("ctrl+p", "command palette: everything else"),
             ("f1", "every shortcut"),
         ]:
             t.add_row(k, v)
@@ -1199,11 +1069,10 @@ class OnboardingScreen(ModalScreen[bool]):
         self._show()
 
     def _show(self) -> None:
-        sid, title, fields = self.STEPS[self.step]
-        for i, (other, _t, _f) in enumerate(self.STEPS):
+        sid, title = self.STEPS[self.step]
+        for i, (other, _t) in enumerate(self.STEPS):
             self.query_one(f"#ob-{other}").display = i == self.step
         self.query_one("#dialog").border_title = f"set up cram · {title}"
-        self.query_one("#error", Static).update("")
         dots = Text()
         for i in range(len(self.STEPS)):
             dots.append("● " if i == self.step else "○ ", style=ui.T.accent if i <= self.step else ui.T.dim)
@@ -1214,23 +1083,10 @@ class OnboardingScreen(ModalScreen[bool]):
             *([] if last else [" · ", ("esc", "bold"), " skip setup"]), style=ui.T.muted))
         if sid == "tour":  # built now so it picks up the theme you just chose
             self.query_one("#ob-tour ObPage", Static).update(self._tour())
-        if fields:
-            self.query_one(f"#{self._field_id(*fields[0][:2])}", Input).focus()
+        if sid == "look":
+            self.query_one("#themes").focus()
         else:
             self.query_one(f"#ob-{sid} ObPage").focus()
-
-    @on(Input.Submitted, ".ob-input")
-    def _field_done(self, ev: Input.Submitted) -> None:
-        ids = [self._field_id(sec, key) for sec, key, *_ in self.STEPS[self.step][2]]
-        i = ids.index(ev.input.id)
-        if i + 1 < len(ids):
-            self.query_one(f"#{ids[i + 1]}", Input).focus()
-        elif self.STEPS[self.step][0] == "rate":
-            if self._save_step():
-                self.query_one("#error", Static).update("")
-                self.query_one("#themes").focus()
-        else:
-            self.action_next()
 
     @on(OptionList.OptionHighlighted, "#themes")
     def _preview(self, ev: OptionList.OptionHighlighted) -> None:
@@ -1240,35 +1096,13 @@ class OnboardingScreen(ModalScreen[bool]):
     def _theme_done(self) -> None:
         self.action_next()
 
-    def _save_step(self) -> bool:
-        sid, _title, fields = self.STEPS[self.step]
-        for sec, key, *_ in fields:
-            value = self.query_one(f"#{self._field_id(sec, key)}", Input).value.strip()
-            if key == "rate":
-                try:
-                    rate = float(value.lstrip("$") or 0)
-                    if rate <= 0:
-                        raise ValueError
-                except ValueError:
-                    self.query_one("#error", Static).update(
-                        Text("✗ the rate should be a number, like 25", style=f"bold {ui.T.err}"))
-                    return False
-                config_mod.set_value(sec, key, rate)
-            elif value or key == "paypal":
-                config_mod.set_value(sec, key, value)
-        if sid == "rate":
+    def _save_step(self) -> None:
+        if self.STEPS[self.step][0] == "look":
             ol = self.query_one("#themes", OptionList)
             config_mod.set_value("ui", "theme", ol.get_option_at_index(ol.highlighted or 0).id)
-        if sid == "client":
-            # The PDF's title and file name read better with the client's name in them.
-            name = self.query_one(f"#{self._field_id('client', 'name')}", Input).value.strip()
-            if name and self.cfg["invoice"]["doc_title"] == "Work Logs + Invoice":
-                config_mod.set_value("invoice", "doc_title", f"{name} Logs + Invoice")
-        return True
 
     def action_next(self) -> None:
-        if not self._save_step():
-            return
+        self._save_step()
         if self.step == len(self.STEPS) - 1:
             self._finish()
             return
@@ -1276,10 +1110,8 @@ class OnboardingScreen(ModalScreen[bool]):
         self._show()
 
     def action_skip(self) -> None:
-        if self.step == len(self.STEPS) - 1:
-            self._finish()
-            return
-        self.app.notify("Setup skipped. /config or ctrl+p → \"Edit full config file\" any time.")
+        if self.step < len(self.STEPS) - 1:
+            self.app.notify("Setup skipped. Pick a theme any time with /config.")
         self._finish()
 
     def _finish(self) -> None:
@@ -1391,7 +1223,6 @@ class MainScreen(Screen):
         Binding("f1", "keys", "shortcuts", show=False),
         Binding("ctrl+t", "edit_block", "edit times", show=False),
         Binding("ctrl+l", "log", "week log", show=False),
-        Binding("f5", "preview", "preview", show=False),
         Binding("ctrl+b", "toggle_side", "side panel", show=False),
     ]
     # Arrow moves inside the top section: (from, direction) -> to.
@@ -1584,10 +1415,7 @@ class MainScreen(Screen):
         r = report.build(store, self.cfg, week_start(date.today()))
         week = self.query_one("#week", FocusPanel)
         week.border_title = f"week {fmt_md(r.monday)} – {fmt_md(r.sunday)}"
-        if run:
-            week.border_subtitle = "● in progress"
-        else:
-            week.border_subtitle = "approved" if r.approved else "pending approval"
+        week.border_subtitle = "● in progress" if run else ""
         week.set_class(run is not None, "unsaved")
         bar_w = max(4, min(26, (week.content_size.width or 56) - 30))
         week.update(Group(ui.week_bars(store, r.monday, at, width=bar_w), Text(""), ui.totals_line(r)))
@@ -1610,7 +1438,7 @@ class MainScreen(Screen):
             left.append("✓ saved  ", style=f"bold {ui.T.ok}")
             left.append("week log is up to date", style=ui.T.dim)
         self.status_text = left.plain
-        right = Text("week approved 🔒" if r.approved else "week pending approval", style=ui.T.dim)
+        right = Text(f"this week {fmt_hm(r.total_minutes)}", style=ui.T.dim)
         if self.size.width < 100:
             right = Text("")
         g = Table.grid(expand=True)
@@ -1665,9 +1493,6 @@ class MainScreen(Screen):
     def _start(self, text: str) -> None:
         store = Store.load()
         t = now()
-        if store.is_approved(week_start(t.date())):
-            self.app.notify("This week is already approved. Unapprove it from the palette first.", severity="error")
-            return
         o = store.overlap(t, None)
         if o:
             self.app.notify(f"Overlaps block #{o.id}.", severity="error")
@@ -1771,10 +1596,6 @@ class MainScreen(Screen):
                 self.app.push_screen(DayScreen(parse_date(arg) if arg else date.today()))
             elif cmd == "/vweek":
                 self.app.push_screen(LogScreen(parse_week(arg or None)))
-            elif cmd in ("/previewlogs", "/vlog"):
-                self.app.run_cli("preview", *(["-w", arg] if arg else []))
-            elif cmd == "/exportlogs":
-                self.export_logs(arg)
             elif cmd == "/weeks":
                 self.app.push_screen(WeekPicker())
             elif cmd == "/config":
@@ -1862,8 +1683,7 @@ class MainScreen(Screen):
         def done(saved: bool | None) -> None:
             self.app.reload_config()
             if saved:
-                self.app.notify(f"rate ${float(self.cfg['invoice']['rate']):g}/hr · theme {self.cfg['ui']['theme']}"
-                                f" · PDFs → {self.cfg['export']['dir']}", title="✓ config saved")
+                self.app.notify(f"theme {self.cfg['ui']['theme']}", title="✓ config saved")
         self.app.push_screen(ConfigScreen(self.cfg), done)
 
     def action_keys(self) -> None:
@@ -1871,34 +1691,6 @@ class MainScreen(Screen):
 
     def action_log(self) -> None:
         self.app.push_screen(LogScreen())
-
-    def export_logs(self, arg: str = "") -> None:
-        """Save the week's PDF into the export folder (approving it first if needed)."""
-        store = Store.load()
-        if arg:
-            monday = parse_week(arg)
-        else:
-            cur = week_start(date.today())
-            monday = cur if store.in_week(cur) or not store.in_week(cur - timedelta(weeks=1)) else cur - timedelta(weeks=1)
-        if not store.in_week(monday):
-            self.app.notify(f"Nothing logged for the week of {fmt_md(monday)}.", severity="warning")
-            return
-        if not store.is_approved(monday):
-            self.app.notify("This week isn't approved yet, so approve it first (you'll be asked to export at the end).")
-            self.app.run_cli("approve", "-w", monday.isoformat())
-            return
-        from . import pdf
-        r = report.build(store, self.cfg, monday)
-        path = report.export_path(self.cfg, r)
-        pdf.render(r, self.cfg, path)
-        store = Store.load()
-        store.weeks[monday.isoformat()].setdefault("exports", []).append(
-            {"path": str(path), "at": datetime.now().isoformat(timespec="seconds")})
-        store.save()
-        self.app.notify(str(path).replace(str(Path.home()), "~"), title="✓ PDF saved", timeout=8)
-
-    def action_preview(self) -> None:
-        self.app.run_cli("preview")
 
     def action_toggle_side(self) -> None:
         self._side_pref = not self.query_one("#side").display
@@ -1917,19 +1709,15 @@ class CramCommands(Provider):
             ("Add item", "ctrl+n · what you're working on", main.action_new_item),
             ("View day", "/vday", lambda: main.slash("/vday", "")),
             ("View week", "/vweek · ctrl+l", main.action_log),
-            ("Preview log + invoice", "/previewLogs · f5", main.action_preview),
-            ("Export log + invoice PDF", "/exportLogs", lambda: main.export_logs()),
-            ("Pick a week…", "/weeks · preview, export or approve any week", lambda: app.push_screen(WeekPicker())),
+            ("Pick a week…", "/weeks · open any past week", lambda: app.push_screen(WeekPicker())),
             ("Undo", "ctrl+z · or type undo", app.action_undo),
             ("Redo", "ctrl+y · or type redo", app.action_redo),
-            ("Config: rate and theme", "/config", main.action_config),
+            ("Config: color theme", "/config", main.action_config),
             ("Add a past block", "forgot to punch in? log it here", lambda: app.push_screen(
                 BlockEditor(None, "add"), lambda ok: main.reload())),
             ("Edit last block times", "ctrl+t", main.action_edit_block),
-            ("Approve week", "review, set billed hours, lock it", lambda: app.run_cli("approve")),
-            ("Unapprove week", "unlock a week to edit it", lambda: app.run_cli("unapprove")),
-            ("Weeks history", "hours, invoices, status", lambda: app.run_cli("weeks")),
-            ("Edit full config file", "name, client, address…", lambda: app.run_cli("config", "--edit", wait=False)),
+            ("Weeks history", "hours studied per week", lambda: app.run_cli("weeks")),
+            ("Edit full config file", "theme, banner, mascot", lambda: app.run_cli("config", "--edit", wait=False)),
             ("Keyboard shortcuts", "f1", main.action_keys),
             ("Toggle side panel", "ctrl+b", main.action_toggle_side),
             ("Quit", "ctrl+q", app.action_quit),
@@ -2006,28 +1794,24 @@ class CramApp(App):
     #times { height: auto; }
     #times Label { padding: 1 1 0 0; color: $text-muted; }
     #times Input { width: 1fr; border: tall $foreground 20%; background: transparent; }
-    #times Input:focus, #extra:focus, #rate:focus { border: tall $accent; }
+    #times Input:focus, #extra:focus { border: tall $accent; }
     #span { margin: 1 0 0 0; }
     #dialog #items { max-height: 12; }
     #question { margin-top: 1; color: $accent; text-style: bold; }
-    #extra, #rate { border: tall $foreground 20%; background: transparent; }
+    #extra { border: tall $foreground 20%; background: transparent; }
     .field { color: $text-muted; margin-top: 1; }
     #quitopts { height: auto; margin-top: 1; background: transparent; border: none; }
     #quitopts > .option-list--option-highlighted { background: $primary 35%; text-style: none; }
-    #themes, #naming { height: auto; background: transparent; border: round $foreground 20%; }
-    #themes:focus, #naming:focus { border: round $accent; }
-    #themes > .option-list--option-highlighted, #naming > .option-list--option-highlighted {
+    #themes { height: auto; background: transparent; border: round $foreground 20%; }
+    #themes:focus { border: round $accent; }
+    #themes > .option-list--option-highlighted {
         background: $primary 35%; text-style: none;
     }
-    #folder { border: tall $foreground 20%; background: transparent; }
-    #folder:focus { border: tall $accent; }
     #error { height: auto; margin-top: 1; }
     #dialog.onboard { width: 80; overflow-y: auto; }
     .ob-step { height: auto; }
     ObPage { height: auto; }
     #ob-banner { margin-bottom: 1; }
-    .ob-input { border: tall $foreground 20%; background: transparent; }
-    .ob-input:focus { border: tall $accent; }
     #ob-steps { margin-top: 1; }
     #hint { color: $text-muted; margin-top: 1; }
     #keys { width: 96; }

@@ -1,7 +1,6 @@
 """Parsing and formatting of dates, times, durations and weeks."""
 from __future__ import annotations
 
-import math
 import re
 from datetime import date, datetime, time, timedelta
 
@@ -54,16 +53,6 @@ def fmt_range(start: datetime, end: datetime | None) -> str:
     return f"{fmt_time(start)}-{fmt_time(end) if end else 'now'}"
 
 
-def fmt_hrmin(minutes: int) -> str:
-    """9hr 20min (the PDF style)"""
-    h, m = divmod(int(minutes), 60)
-    if m == 0:
-        return f"{h}hr"
-    if h == 0:
-        return f"{m}min"
-    return f"{h}hr {m}min"
-
-
 def fmt_hm(minutes: int) -> str:
     """9h 20m (the terminal style)"""
     h, m = divmod(int(minutes), 60)
@@ -72,28 +61,12 @@ def fmt_hm(minutes: int) -> str:
     return f"{h}h {m:02d}m" if h else f"{m}m"
 
 
-def fmt_hours_num(minutes: int) -> str:
-    """540 -> '9', 570 -> '9.5', 560 -> '9.33'"""
-    h = round(minutes / 60, 2)
-    return str(int(h)) if h == int(h) else f"{h:.2f}".rstrip("0").rstrip(".")
-
-
 def fmt_md(d: date) -> str:
     return f"{d.month}/{d.day}"
 
 
 def fmt_mdy(d: date) -> str:
     return f"{d.month}/{d.day}/{d:%y}"
-
-
-def fmt_long(d: date) -> str:
-    return f"{d:%b} {d.day}, {d.year}"
-
-
-def fmt_money(amount: float, cents: bool = True) -> str:
-    if not cents and amount == int(amount):
-        return f"${int(amount):,}"
-    return f"${amount:,.2f}"
 
 
 # ── parsing ──────────────────────────────────────────────────────────────────
@@ -183,43 +156,3 @@ def parse_week(s: str | None, ref: date | None = None) -> date:
     if re.fullmatch(r"[-+]\d{1,3}", s):
         return cur + timedelta(weeks=int(s))
     return week_start(parse_date(s, ref))
-
-
-_HOURS_RE = re.compile(r"^(?:(\d+(?:\.\d+)?)\s*h(?:rs?|ours?)?)?\s*(?:(\d+)\s*m(?:in(?:utes?)?)?)?$")
-
-
-def parse_hours(s: str) -> int:
-    """'9' / '9.5' / '9:30' / '9h30m' / '9hr 30min' -> minutes"""
-    s = s.strip().lower()
-    if re.fullmatch(r"\d+(\.\d+)?", s):
-        return round(float(s) * 60)
-    m = re.fullmatch(r"(\d+):(\d{2})", s)
-    if m:
-        return int(m[1]) * 60 + int(m[2])
-    m = _HOURS_RE.match(s)
-    if m and (m[1] or m[2]):
-        return round(float(m[1] or 0) * 60) + int(m[2] or 0)
-    raise ParseError(f"can't read hours '{s}' (try 9, 9.5, 9:30 or 9h30m)")
-
-
-# ── billing ──────────────────────────────────────────────────────────────────
-
-def billed_minutes(total: int, mode: str) -> int:
-    mode = (mode or "down").lower()
-    if mode == "exact":
-        return total
-    if mode == "nearest":
-        return int(math.floor(total / 60 + 0.5)) * 60
-    if mode == "quarter":
-        return int(math.floor(total / 15 + 0.5)) * 15
-    if mode == "up":
-        return int(math.ceil(total / 60)) * 60
-    return (total // 60) * 60  # "down"
-
-
-def add_business_days(d: date, n: int) -> date:
-    while n > 0:
-        d += timedelta(days=1)
-        if d.weekday() < 5:
-            n -= 1
-    return d

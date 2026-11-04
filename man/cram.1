@@ -1,6 +1,6 @@
 .TH CRAM 1 "November 2026" "cram 0.1.0" "User Commands"
 .SH NAME
-cram \- clock in and out from the terminal, log what you did, export a weekly log + invoice PDF
+cram \- track your study hours from the terminal
 .SH SYNOPSIS
 .B cram
 .br
@@ -10,10 +10,8 @@ cram \- clock in and out from the terminal, log what you did, export a weekly lo
 .RI [ arguments ]
 .SH DESCRIPTION
 .B cram
-keeps a log of the time you work and what you did in each block.
-At the end of a week you review and
-.I approve
-it, which locks the week, and then export a PDF with a log page and an invoice page.
+keeps a log of the time you study and what you covered in each session,
+with totals per day and per week.
 .PP
 Run
 .B cram
@@ -50,16 +48,10 @@ View a week's blocks with a timeline per day.
 .TP
 .BR /weeks
 A calendar of all your weeks. Up/down picks one;
-\fBp\fR previews, \fBe\fR exports, \fBa\fR approves, Enter opens it.
-.TP
-.BR /previewLogs " [\fIweek\fR]"
-Preview the week's log + invoice PDF (inline in kitty, Ghostty and WezTerm; otherwise your PDF viewer).
-.TP
-.BR /exportLogs " [\fIweek\fR]"
-Save the PDF into the export folder. An unapproved week is approved first.
+Enter opens its log.
 .TP
 .B /config
-Hourly rate, color theme, export folder and file-name style.
+Color theme.
 .TP
 .B /help
 All commands and keys.
@@ -88,13 +80,13 @@ Jump to the working-on box.
 Undo, redo.
 .TP
 .B ctrl+p
-Command palette (approve, export, past blocks, themes, ...).
+Command palette (past sessions, themes, ...).
 .TP
 .B ctrl+t
 Fix the last block's times.
 .TP
-.BR ctrl+l ", " f5
-Week log, PDF preview.
+.B ctrl+l
+Week log.
 .TP
 .B ctrl+b
 Show or hide the side panels.
@@ -141,19 +133,7 @@ Show hours per day, every block and the totals for a week.
 On or off the clock, hours worked today, and the week; \fB\-W\fR keeps it live.
 .TP
 .BR weeks " [\fB\-n\fR \fIcount\fR]"
-Recent weeks with hours, amount, invoice number and status.
-.TP
-.BR preview " [\fB\-w\fR \fIweek\fR] [\fB\-p\fR \fIpage\fR] [\fB\-o\fR]"
-Show the PDF, watermarked PREVIEW until the week is approved. \fB\-o\fR opens your PDF viewer.
-.TP
-.BR approve " [\fB\-w\fR \fIweek\fR]"
-Review a week, confirm billed hours, the invoice line, number and issue date, then lock it.
-.TP
-.BR unapprove " [\fB\-w\fR \fIweek\fR]"
-Unlock an approved week so it can be edited.
-.TP
-.BR export " [\fB\-w\fR \fIweek\fR] [\fB\-\-out\fR \fIpath\fR] [\fB\-o\fR]"
-Write the PDF for an approved week into the export folder (or \fIpath\fR).
+Recent weeks with hours studied and days studied.
 .TP
 .BR undo " [\fIn\fR], " redo " [\fIn\fR]"
 Undo or redo changes. The last 100 are kept.
@@ -166,27 +146,13 @@ Switch to the next color theme.
 .SH CONFIGURATION
 \fI~/.config/cram/config.toml\fR is created on first run. Sections:
 .TP
-.B [you]
-name, title, address lines, email, paypal (shown on the invoice).
-.TP
-.B [client]
-name, address lines, email.
-.TP
-.B [invoice]
-doc_title, role, rate, first_number, due_business_days,
-billing (\fBdown\fR, \fBnearest\fR, \fBup\fR, \fBquarter\fR or \fBexact\fR), footer.
-.TP
-.B [export]
-dir, and filename, a pattern using \fB{start}\fR, \fB{end}\fR (10_12),
-\fB{start_iso}\fR, \fB{end_iso}\fR (2026\-10\-12), \fB{number}\fR, \fB{name}\fR and \fB{year}\fR.
-.TP
 .B [ui]
 theme (\fBcatppuccin\fR, \fBnord\fR, \fBgruvbox\fR, \fBtokyonight\fR, \fBrosepine\fR, \fBleonida\fR),
 banner and mascot (\fBtrue\fR/\fBfalse\fR).
 .SH FILES
 .TP
 .I ~/.config/cram/config.toml
-Your details, rate, theme and export settings.
+Theme, banner and mascot settings.
 .TP
 .I ~/.local/share/cram/data.json
 The log. \fIdata.json.bak\fR is the previous version; a damaged file is replaced by it automatically.
@@ -196,9 +162,6 @@ Undo history.
 .TP
 .I ~/.local/share/cram/session.json
 Heartbeat used to notice that cram closed unexpectedly while you were clocked in.
-.TP
-.I ~/Documents/cram/
-Default export folder.
 .SH ENVIRONMENT
 .TP
 .B CRAM_HOME
@@ -211,10 +174,10 @@ Respected when \fBCRAM_HOME\fR is not set.
 cannot be read (for example a time like \fB25pm\fR).
 .SH EXAMPLES
 .nf
-cram in fixing the scraper
-cram add "checked the VPN prefix list"
+cram in linear algebra
+cram add "eigenvectors, ch. 5"
 cram out --at 5:15pm
-cram approve -w last && cram export -w last
+cram v-week -w last
 .fi
 .SH SEE ALSO
 https://github.com/ricozama121803/cram

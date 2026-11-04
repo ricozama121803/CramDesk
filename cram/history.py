@@ -89,10 +89,6 @@ def _sessions(text: str | None) -> dict[int, dict]:
     return {s["id"]: s for s in json.loads(text).get("sessions", [])}
 
 
-def _weeks(text: str | None) -> dict:
-    return json.loads(text).get("weeks", {}) if text else {}
-
-
 def _block(s: dict) -> str:
     st = datetime.fromisoformat(s["start"])
     en = datetime.fromisoformat(s["end"]) if s.get("end") else None
@@ -128,15 +124,6 @@ def describe(before: str | None, after: str | None) -> str:
                 changes.append(f"remove “{_short(removed[0])}”")
             else:
                 changes.append(f"edit description on {_block(new)}")
-    wa, wb = _weeks(before), _weeks(after)
-    for k in wb.keys() - wa.keys():
-        changes.append(f"approve week of {k[5:].replace('-', '/')}")
-    for k in wa.keys() - wb.keys():
-        changes.append(f"unapprove week of {k[5:].replace('-', '/')}")
-    for k in wa.keys() & wb.keys():
-        if wa[k] != wb[k]:
-            changes.append("export PDF" if len(wb[k].get("exports", [])) > len(wa[k].get("exports", []))
-                           else f"update week of {k[5:].replace('-', '/')}")
     if not changes:
         return "change"
     return changes[0] + (f" (+{len(changes) - 1} more)" if len(changes) > 1 else "")

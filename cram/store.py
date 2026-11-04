@@ -1,4 +1,4 @@
-"""Sessions + approved weeks, kept in one JSON file."""
+"""Study sessions, kept in one JSON file."""
 from __future__ import annotations
 
 import json
@@ -61,9 +61,8 @@ class DataError(Exception):
 
 
 class Store:
-    def __init__(self, sessions: list[Session], weeks: dict[str, dict], next_id: int):
+    def __init__(self, sessions: list[Session], next_id: int):
         self.sessions = sessions
-        self.weeks = weeks  # "YYYY-MM-DD" (monday) -> approval record
         self.next_id = next_id
 
     # ── io ──
@@ -71,7 +70,7 @@ class Store:
     def load(cls) -> "Store":
         path = data_file()
         if not path.exists():
-            return cls([], {}, 1)
+            return cls([], 1)
         try:
             raw = json.loads(path.read_text())
             sessions = [Session.from_dict(s) for s in raw.get("sessions", [])]
@@ -90,7 +89,7 @@ class Store:
             print(f"cram: {path.name} was damaged, restored the backup (damaged copy kept as {broken.name})",
                   file=sys.stderr)
         next_id = raw.get("next_id") or (max((s.id for s in sessions), default=0) + 1)
-        return cls(sessions, raw.get("weeks", {}), next_id)
+        return cls(sessions, next_id)
 
     def save(self, record: bool = True) -> None:
         path = data_file()
@@ -98,7 +97,6 @@ class Store:
             "version": 1,
             "next_id": self.next_id,
             "sessions": [s.to_dict() for s in sorted(self.sessions, key=lambda s: s.start)],
-            "weeks": self.weeks,
         }
         text = json.dumps(payload, indent=2)
         before = path.read_text() if path.exists() else None
@@ -148,19 +146,3 @@ class Store:
             if start < s_end and s.start < end:
                 return s
         return None
-
-    # ── weeks ──
-    def approval(self, monday: date) -> dict | None:
-        return self.weeks.get(monday.isoformat())
-
-    def is_approved(self, monday: date) -> bool:
-        return monday.isoformat() in self.weeks
-
-    def next_invoice_number(self, first: int) -> int:
-        used = [w["invoice_number"] for w in self.weeks.values() if "invoice_number" in w]
-        return max(used) + 1 if used else first
-
-    def last_summary(self) -> str:
-        if not self.weeks:
-            return ""
-        return self.weeks[max(self.weeks)].get("summary", "")

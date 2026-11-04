@@ -7,28 +7,27 @@ import subprocess
 import sys
 import time as _time
 from datetime import date, datetime, timedelta
-from pathlib import Path
 from typing import Optional
 
 import typer
 from rich.console import Group
 from rich.live import Live
-from rich.prompt import Confirm, IntPrompt, Prompt
+from rich.prompt import Confirm, IntPrompt
 from rich.syntax import Syntax
 from rich.text import Text
 
 from . import config as config_mod
-from . import conflict, pdf, report, termimg, ui
+from . import conflict, report, ui
 from .paths import cache_dir, config_file, data_file
 from .store import Session, Store
 from .timeutil import (
-    DAY_ABBR, ParseError, add_business_days, fmt_hm, fmt_hours_num, fmt_hrmin, fmt_long, fmt_md, fmt_money, fmt_range,
-    fmt_time, now, parse_date, parse_hours, parse_time, parse_week, parse_when, week_start,
+    DAY_ABBR, ParseError, fmt_hm, fmt_md, fmt_range,
+    fmt_time, now, parse_date, parse_time, parse_week, parse_when, week_start,
 )
 
 app = typer.Typer(
     name="cram",
-    help="⏱  [bold]cram[/]: clock in/out, log what you did, and ship a weekly log + invoice PDF.\n\nRun [b]cram[/] on its own for the full-screen app.",
+    help="⏱  [bold]cram[/]: track your study hours. Start a session, note what you covered, stop.\n\nRun [b]cram[/] on its own for the full-screen app.",
     rich_markup_mode="rich",
     no_args_is_help=False,
     add_completion=True,
@@ -49,14 +48,6 @@ def _load() -> tuple[Store, dict]:
 def _fail(msg: str, code: int = 1):
     ui.err(msg)
     raise typer.Exit(code)
-
-
-def _ensure_unlocked(store: Store, monday: date) -> None:
-    if store.is_approved(monday):
-        _fail(
-            f"The week of {fmt_md(monday)} is approved and locked. "
-            f"Run [b]cram unapprove -w {monday.isoformat()}[/] to change it."
-        )
 
 
 def _check_overlap(store: Store, start: datetime, end: datetime | None, exclude: int | None = None) -> None:
@@ -152,10 +143,6 @@ def _pick_block(store: Store, ask_first: bool) -> Session:
     return pool[_choose("Which block?", [_block_line(s) for s in pool])]
 
 
-def _export_path(cfg: dict, r: report.Report) -> Path:
-    return report.export_path(cfg, r)
-
-
 # ── clocking ─────────────────────────────────────────────────────────────────
 
 @app.command("in")
@@ -171,7 +158,6 @@ def clock_in(
     start = parse_when(at) if at else now()
     if start > now() + timedelta(minutes=1):
         _fail("Can't clock in in the future.")
-    _ensure_unlocked(store, week_start(start.date()))
     _check_overlap(store, start, None)
     s = store.add(start, None, [" ".join(note)] if note else [])
     store.save()
@@ -228,7 +214,6 @@ def add(
             _fail(f"No session #{id}.")
     else:
         s = store.running() or _pick_block(store, ask_first=True)
-    _ensure_unlocked(store, s.week)
     if text:
         lines = [" ".join(text)]
     else:
@@ -262,7 +247,6 @@ def edit(
         s = store.get(id)
         if not s:
             _fail(f"No session #{id}.")
-    _ensure_unlocked(store, s.week)
 
     interactive = not any([day, start, end, notes, add_note]) and _tty()
 
@@ -309,7 +293,6 @@ def edit(
                 new_end += timedelta(days=1)
         elif end:
             _fail("That session is still running. Use [b]cram out --at[/] to end it.")
-        _ensure_unlocked(store, week_start(d))
         if not (interactive and new_end and store.overlap(new_start, new_end, s.id)):
             break
         how = _resolve_overlap(store, new_start, new_end, s.id)
@@ -424,8 +407,7 @@ def view_week(week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK
     if r.days:
         parts += [Text(""), ui.sessions_table(store, monday)]
     parts += [Text(""), ui.totals_line(r)]
-    ui.console.print(ui.panel(Group(*parts), f"week {fmt_md(r.monday)} – {fmt_md(r.sunday)}",
-                              subtitle=ui.status_chip(store, monday)))
+    ui.console.print(ui.panel(Group(*parts), f"week {fmt_md(r.monday)} – {fmt_md(r.sunday)}"))
 
 
 @app.command("v-block")
@@ -450,14 +432,13 @@ def view_block(id: Optional[int] = typer.Option(None, "--id", hidden=True)):
 
 @app.command()
 def weeks(n: int = typer.Option(8, "--last", "-n", help="How many weeks back.")):
-    """Overview of recent weeks and whether they're approved/exported."""
+    """Hours studied in each of your recent weeks."""
     from rich import box
     from rich.table import Table
 
     store, cfg = _load()
     t = Table(box=box.SIMPLE_HEAD, header_style=f"bold {ui.T.accent}", show_edge=False, pad_edge=False)
-    for col, j in [("week", "left"), ("hours", "right"), ("billed", "right"), ("amount", "right"),
-                   ("invoice", "right"), ("status", "left")]:
+    for col, j in [("week", "left"), ("hours", "right"), ("days", "right")]:
         t.add_column(col, justify=j)
     cur = week_start(date.today())
     keys = {cur - timedelta(weeks=i) for i in range(n)} | {s.week for s in store.sessions if s.week >= cur - timedelta(weeks=n)}
@@ -468,150 +449,16 @@ def weeks(n: int = typer.Option(8, "--last", "-n", help="How many weeks back."))
         t.add_row(
             Text(f"{fmt_md(monday)} – {fmt_md(r.sunday)}", style=style),
             Text(fmt_hm(r.total_minutes) if not empty else "·", style=style),
-            Text(fmt_hm(r.billed_minutes) if not empty else "", style=style),
-            Text(fmt_money(r.amount) if not empty else "", style=ui.T.ok if not empty else style),
-            Text(f"#{r.invoice_number}" if r.approved else "", style=ui.T.dim),
-            ui.status_chip(store, monday) if not empty or r.approved else Text(""),
+            Text(str(len(r.days)) if not empty else "", style=ui.T.dim),
         )
     ui.console.print(ui.panel(t, "weeks"))
-
-
-# ── preview / approve / export ───────────────────────────────────────────────
-
-@app.command()
-def preview(
-    week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_HELP),
-    page: Optional[int] = typer.Option(None, "--page", "-p", help="Show just page N (bigger)."),
-    open_: bool = typer.Option(False, "--open", "-o", help="Open in your PDF viewer instead of the terminal."),
-):
-    """See what the PDF will look like (watermarked until the week is approved)."""
-    store, cfg = _load()
-    monday = _pick_week(store, week)
-    r = report.build(store, cfg, monday)
-    if not r.days:
-        _fail(f"Nothing logged for the week of {fmt_md(monday)}.")
-    path = pdf.render(r, cfg, cache_dir() / f"preview-{monday.isoformat()}.pdf", preview=not r.approved)
-    if not open_ and termimg.supports_inline_images():
-        termimg.show_inline(path, [page] if page else None)
-    elif sys.stdout.isatty() and not termimg.open_external(path):
-        ui.warn("Couldn't find a PDF viewer.")
-    ui.info(f"week {fmt_md(r.monday)} – {fmt_md(r.sunday)} · {fmt_hrmin(r.total_minutes)} · "
-            f"billed {fmt_hrmin(r.billed_minutes)} · {fmt_money(r.amount)}"
-            + ("" if r.approved else " · [i]not approved yet[/]"))
-    ui.info(f"[dim]{path}[/]")
-
-
-@app.command()
-def approve(week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_HELP)):
-    """Review a week, confirm billed hours + invoice details, and lock it in."""
-    store, cfg = _load()
-    monday = _pick_week(store, week)
-    if store.is_approved(monday):
-        r = report.build(store, cfg, monday)
-        ui.ok(f"The week of {fmt_md(monday)} is already approved (invoice #{r.invoice_number}). "
-              "[b]cram export[/] makes the PDF.")
-        return
-    run = store.running()
-    if run and run.week == monday:
-        _fail("You're still clocked in this week. [b]cram out[/] first.")
-    r = report.build(store, cfg, monday)
-    if not r.days:
-        _fail(f"Nothing logged for the week of {fmt_md(monday)}.")
-
-    ui.console.print(ui.panel(Group(ui.sessions_table(store, monday), Text(""), ui.totals_line(r)),
-                              f"review · week {fmt_md(r.monday)} – {fmt_md(r.sunday)}", subtitle=ui.status_chip(store, monday)))
-    ui.info(f"Worked [b]{fmt_hrmin(r.total_minutes)}[/]. Billing rule '{cfg['invoice']['billing']}' "
-            f"gives [b]{fmt_hrmin(r.billed_minutes)}[/].")
-
-    billed = parse_hours(Prompt.ask("  Billed hours", default=fmt_hours_num(r.billed_minutes)))
-    role = cfg["invoice"]["role"]
-    summary = Prompt.ask(f"  Invoice line [dim](after '{role} -')[/]", default=r.summary or None) or ""
-    number = IntPrompt.ask("  Invoice #", default=r.invoice_number)
-    issued = parse_date(Prompt.ask("  Issued", default="today"))
-    due = add_business_days(issued, int(cfg["invoice"]["due_business_days"]))
-    rate = float(cfg["invoice"]["rate"])
-    amount = round(rate * billed / 60, 2)
-
-    ui.console.print(ui.panel(ui.kv(
-        ("billed", fmt_hrmin(billed)),
-        ("rate", f"{fmt_money(rate, cents=False)}/hr"),
-        ("amount", Text(fmt_money(amount), style=f"bold {ui.T.ok}")),
-        ("invoice", f"#{number}"),
-        ("item", f"{role} -\n{summary}" if summary else role),
-        ("issued", fmt_long(issued)),
-        ("due", fmt_long(due)),
-    ), "about to approve", border=ui.T.accent2, padding=(0, 2)))
-    if Confirm.ask("  Look at the PDF first?", default=False):
-        tmp = report.Report(**{**r.__dict__, "billed_minutes": billed, "summary": summary,
-                               "invoice_number": number, "issued": issued, "due": due, "rate": rate})
-        path = pdf.render(tmp, cfg, cache_dir() / f"preview-{monday.isoformat()}.pdf", preview=True)
-        if termimg.supports_inline_images():
-            termimg.show_inline(path)
-        else:
-            termimg.open_external(path)
-    if not Confirm.ask(Text(f"  Approve and lock the week of {fmt_md(monday)}?", style=f"bold {ui.T.text}"), default=True):
-        ui.info("Not approved. Nothing changed.")
-        raise typer.Exit()
-
-    store.weeks[monday.isoformat()] = {
-        "approved_at": datetime.now().isoformat(timespec="seconds"),
-        "total_minutes": r.total_minutes,
-        "billed_minutes": billed,
-        "rate": rate,
-        "invoice_number": number,
-        "summary": summary,
-        "issued": issued.isoformat(),
-        "due": due.isoformat(),
-        "exports": [],
-    }
-    store.save()
-    ui.ok(f"Approved and locked. Invoice #{number} · {fmt_money(amount)}")
-    if Confirm.ask("  Export the PDF now?", default=True):
-        export(week=monday.isoformat(), out=None, open_=False)
-
-
-@app.command()
-def unapprove(week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_HELP)):
-    """Unlock an approved week so you can edit it again."""
-    store, _ = _load()
-    monday = _pick_week(store, week)
-    if not store.is_approved(monday):
-        _fail(f"The week of {fmt_md(monday)} isn't approved.")
-    if not Confirm.ask(f"  Unlock the week of {fmt_md(monday)}? (you'll need to approve it again)", default=False):
-        raise typer.Exit()
-    del store.weeks[monday.isoformat()]
-    store.save()
-    ui.ok("Unlocked.")
-
-
-@app.command()
-def export(
-    week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_HELP),
-    out: Optional[Path] = typer.Option(None, "--out", help="Write the PDF here instead of the export dir."),
-    open_: bool = typer.Option(False, "--open", "-o", help="Open it afterwards."),
-):
-    """Write the final PDF for an approved week."""
-    store, cfg = _load()
-    monday = _pick_week(store, week)
-    if not store.is_approved(monday):
-        _fail(f"The week of {fmt_md(monday)} isn't approved yet. "
-              "Check it with [b]cram preview[/], then run [b]cram approve[/].")
-    r = report.build(store, cfg, monday)
-    path = (out.expanduser() if out else _export_path(cfg, r)).resolve()
-    pdf.render(r, cfg, path, preview=False)
-    store.weeks[monday.isoformat()].setdefault("exports", []).append(
-        {"path": str(path), "at": datetime.now().isoformat(timespec="seconds")})
-    store.save()
-    ui.ok(f"Saved [b]{path}[/]")
-    if open_:
-        termimg.open_external(path)
 
 
 # ── misc ─────────────────────────────────────────────────────────────────────
 
 @app.command()
 def undo(steps: int = typer.Argument(1, help="How many changes to undo.")):
-    """Undo your last change (punch in/out, items, edits, approvals…)."""
+    """Undo your last change (start/stop, notes, edits…)."""
     _load()
     from . import history
     for _ in range(max(1, steps)):
@@ -654,7 +501,7 @@ def config(
     edit_: bool = typer.Option(False, "--edit", "-e", help="Open the config in $EDITOR."),
     path: bool = typer.Option(False, "--path", help="Just print where the files live."),
 ):
-    """Show or edit your details (name, client, rate, theme…)."""
+    """Show or edit your settings (theme, banner, mascot)."""
     _load()  # creates the file on first run
     f = config_file()
     if path:

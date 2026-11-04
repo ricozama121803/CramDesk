@@ -121,28 +121,17 @@ def test_edit_picks_a_block(monkeypatch):
     assert sorted(s.notes[0] for s in Store.load().sessions) == ["other thing", "renamed"]
 
 
-def test_locked_week_cannot_be_edited_or_deleted():
+def test_invoice_commands_are_gone():
     block("10/14/26", 9, 10, "a")
-    st = Store.load()
-    st.weeks[MON.isoformat()] = {"billed_minutes": 60, "rate": 25.0, "invoice_number": 1, "summary": "",
-                                 "issued": "2026-10-20", "due": "2026-11-07", "exports": []}
-    st.save()
-    for args in (["edit", "1", "--end", "11am"], ["add", "--id", "1", "more"]):
-        r = cram(*args)
-        assert r.exit_code == 1 and "locked" in r.output, args
-    assert Store.load().sessions[0].notes == ["a"]
+    for name in ("preview", "approve", "unapprove", "export"):
+        assert cram(name, "-w", "10/14/26").exit_code == 2, name
 
 
-def test_export_needs_approval_first():
+def test_weeks_shows_hours_without_billing():
     block("10/14/26", 9, 10, "a")
-    r = cram("export", "-w", "10/14/26")
-    assert r.exit_code == 1 and "isn't approved" in r.output
-
-
-def test_cannot_approve_while_clocked_in_that_week():
-    cram("in", "--at", "10/14/26 9am")
-    r = cram("approve", "-w", "10/14/26")
-    assert r.exit_code == 1 and "still clocked in" in r.output
+    r = cram("weeks")
+    assert r.exit_code == 0 and "1h" in r.output
+    assert "billed" not in r.output and "invoice" not in r.output
 
 
 def test_undo_redo_from_the_cli():

@@ -8,35 +8,6 @@ from .paths import config_file
 DEFAULT_TOML = '''\
 # cram config. Edit freely:  cram config --edit
 
-[you]
-name = "Your Name"
-title = "Contractor"             # log page header reads "Name-Title"
-address = ["123 Main St", "Springfield, ST 00000", "UNITED STATES"]
-email = "you@example.com"
-paypal = "@yourhandle"           # set to "" to hide the PayPal line
-
-[client]
-name = "Client Co"
-address = ["Accounts Payable", "456 Market St", "Springfield, ST 00000", "UNITED STATES"]
-email = "billing@example.com"
-
-[invoice]
-doc_title = "Work Logs + Invoice"       # top-right text on the log page
-role = "Software Contractor"            # first line of the invoice item
-rate = 25                               # $ per hour
-first_number = 1001                     # used until you've approved your first week here
-due_business_days = 14
-billing = "down"                        # how hours become billed hours: down | nearest | up | quarter | exact
-footer = [
-  "Payment is required within {days} business days of invoice date.",
-  "Thank you for your business.",
-]
-
-[export]
-dir = "~/Documents/cram"
-filename = "logsweek{start}-{end}.pdf"  # pick a style in /config, or use: {start} {end} (10_12)
-                                        # {start_iso} {end_iso} (2026-10-12) {number} {name} {year}
-
 [ui]
 theme = "catppuccin"                    # catppuccin | nord | gruvbox | tokyonight | rosepine | leonida
 banner = true                           # show the ¡CRAM! banner on the dashboard

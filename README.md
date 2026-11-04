@@ -8,8 +8,8 @@
 
 ---
 
-> **Work in progress.** cram is a fresh copy of pnch with the name and mascot swapped.
-> The invoice/billing parts are still there and will be replaced with per-topic study totals.
+> **Work in progress.** cram is a copy of pnch with invoices and billing taken out.
+> Per-topic study totals are next.
 
 ## Install
 
@@ -31,6 +31,7 @@ cram v-week                        # hours per day, every session, totals (-w la
 cram edit                          # fix a session's times or notes
 cram undo                          # cram redo puts it back
 cram status                        # studying or not, hours today, the week
+cram weeks                         # hours studied in each recent week
 ```
 
 See `man cram` for everything.

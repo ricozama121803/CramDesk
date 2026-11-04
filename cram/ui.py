@@ -12,7 +12,7 @@ from rich.text import Text
 
 from .report import Report
 from .store import Session, Store
-from .timeutil import DAY_ABBR, fmt_hm, fmt_md, fmt_money, fmt_range, fmt_time, week_days
+from .timeutil import DAY_ABBR, fmt_hm, fmt_md, fmt_range, fmt_time, week_days
 
 console = Console(highlight=False)
 
@@ -135,15 +135,6 @@ def chip(label: str, color: str) -> Text:
     return Text.assemble((f" {label} ", f"bold {T.base} on {color}"))
 
 
-def status_chip(store: Store, monday: date) -> Text:
-    rec = store.approval(monday)
-    if rec and rec.get("exports"):
-        return chip("✓ exported", T.ok)
-    if rec:
-        return chip("✓ approved", T.accent2)
-    return chip("◌ pending", T.warn)
-
-
 def bar(minutes: int, scale: int, width: int = 26, color: str | None = None) -> Text:
     parts = " ▏▎▍▌▋▊▉█"
     color = color or T.accent
@@ -237,12 +228,9 @@ def totals_line(r: Report) -> Text:
     t = Text()
     t.append("total ", style=T.dim)
     t.append(fmt_hm(r.total_minutes), style=f"bold {T.text}")
-    t.append("   billed ", style=T.dim)
-    t.append(("" if r.approved else "≈ ") + fmt_hm(r.billed_minutes), style=f"bold {T.text}")
-    t.append("   ", style=T.dim)
-    t.append(fmt_money(r.amount), style=f"bold {T.ok}")
-    if r.approved:
-        t.append(f"   invoice #{r.invoice_number}", style=T.dim)
+    n = len(r.days)
+    if n:
+        t.append(f"   {n} day{'s' if n != 1 else ''} studied", style=T.dim)
     return t
 
 
@@ -267,7 +255,6 @@ def dashboard(store: Store, r: Report, cfg: dict, live: bool = False) -> Group:
     week = panel(
         Group(week_bars(store, r.monday, now), Text(""), totals_line(r)),
         f"week {fmt_md(r.monday)} – {fmt_md(r.sunday)}",
-        subtitle=status_chip(store, r.monday),
     )
     return Group(top, week)
 
