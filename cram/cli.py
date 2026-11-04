@@ -34,7 +34,87 @@ app = typer.Typer(
     context_settings={"help_option_names": ["-h", "--help"]},
 )
 
-WEEK_HELP = "Which week: [b]this[/], [b]last[/], [b]-2[/], or any date in it (10/14, 2026-10-14)."
+WEEK_HELP = "Which week: [b]this[/], [b]last[/], [b]next[/], [b]-2[/], or any date in it (10/14, 2026-10-14)."
+
+
+# ── tab completion ───────────────────────────────────────────────────────────
+# Each function gets what's been typed so far and returns suggestions for the word under the cursor.
+# They must never print or fail: anything going wrong just means no suggestions.
+
+def _quiet_store() -> Store | None:
+    try:
+        return Store.load()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _class_word_completer(param: str):
+    """Complete a class name one word at a time: cram in lin<tab> -> linear, then al<tab> -> algebra.
+    `param` is the argument the words go into; what's already typed is in ctx.params."""
+    def complete(ctx: typer.Context, incomplete: str):
+        store = _quiet_store()
+        if not store:
+            return []
+        typed = [str(w).lower() for w in (ctx.params.get(param) or [])]
+        seen, out = set(), []
+        for c in store.classes:
+            cw = c.lower().split()
+            n = len(typed)
+            if cw[:n] == typed and len(cw) > n and cw[n].startswith(incomplete.lower()) and cw[n] not in seen:
+                seen.add(cw[n])
+                out.append((cw[n], c))
+        return out
+    return complete
+
+
+def _complete_class_option(incomplete: str):
+    """-c / --class: one word that cram will recognize as the class."""
+    store = _quiet_store()
+    if not store:
+        return []
+    out = [("none", "no class")] if "none".startswith(incomplete.lower()) else []
+    for c in store.classes:
+        low = c.lower()
+        first = low.split()[0]
+        word = low if " " not in low else first
+        if store.match_class(word) != (c, "") and " " in low:
+            word = "".join(w[0] for w in low.split())       # initials, when the first word is shared
+        if store.match_class(word) == (c, "") and word.startswith(incomplete.lower()):
+            out.append((word, c))
+    return out
+
+
+def _todo_completer(which: str):
+    def complete(incomplete: str):
+        store = _quiet_store()
+        if not store:
+            return []
+        mine, older = store.todos_for(week_start(date.today()))
+        pool = {"open": [t for t in mine + older if not t.done],
+                "done": [t for t in store.todos if t.done],
+                "all": mine + older}[which]
+        return [(str(t.id), (f"{t.course}: " if t.course else "") + t.text)
+                for t in pool if str(t.id).startswith(incomplete)]
+    return complete
+
+
+def _complete_week(incomplete: str):
+    words = [("this", "this week"), ("last", "last week"), ("next", "next week"), ("-2", "two weeks ago")]
+    return [(w, h) for w, h in words if w.startswith(incomplete.lower())]
+
+
+def _complete_day(incomplete: str):
+    words = [("today", ""), ("yesterday", "")] + [(d, "") for d in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")]
+    return [(w, h) for w, h in words if w.startswith(incomplete.lower())]
+
+
+def _complete_session_id(incomplete: str):
+    store = _quiet_store()
+    if not store:
+        return []
+    recent = sorted(store.sessions, key=lambda s: s.start, reverse=True)[:15]
+    return [(str(s.id), f"{s.course or 'no class'} · {ui.block_label(s)}") for s in recent
+            if str(s.id).startswith(incomplete)]
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -181,9 +261,11 @@ def _split_class(store: Store, text: str) -> tuple[str | None, str]:
 
 @app.command("in")
 def clock_in(
-    note: Optional[list[str]] = typer.Argument(None, help="The class, then anything else about it (optional)."),
+    note: Optional[list[str]] = typer.Argument(None, help="The class, then anything else about it (optional).",
+                                                autocompletion=_class_word_completer("note")),
     at: Optional[str] = typer.Option(None, "--at", help="Start time if you forgot: 9:30am, 'yesterday 9pm'."),
-    course: Optional[str] = typer.Option(None, "--class", "-c", help="The class, if you'd rather name it here."),
+    course: Optional[str] = typer.Option(None, "--class", "-c", help="The class, if you'd rather name it here.",
+                                          autocompletion=_complete_class_option),
 ):
     """Start studying. [dim]e.g. cram in linear algebra[/] or [dim]cram in la ch 5 review[/]"""
     store, _ = _load()
@@ -272,13 +354,14 @@ def add(
 
 @app.command()
 def edit(
-    id: Optional[int] = typer.Argument(None, hidden=True),
-    day: Optional[str] = typer.Option(None, "--date", "-d", help="Move to another date."),
+    id: Optional[int] = typer.Argument(None, hidden=True, autocompletion=_complete_session_id),
+    day: Optional[str] = typer.Option(None, "--date", "-d", help="Move to another date.", autocompletion=_complete_day),
     start: Optional[str] = typer.Option(None, "--start", "-s", help="New start time."),
     end: Optional[str] = typer.Option(None, "--end", "-e", help="New end time."),
     notes: Optional[list[str]] = typer.Option(None, "--note", "-n", help="Replace notes (repeat for several lines)."),
     add_note: Optional[list[str]] = typer.Option(None, "--add-note", "-a", help="Append a note line."),
-    course: Optional[str] = typer.Option(None, "--class", "-c", help="Change the class ('none' clears it)."),
+    course: Optional[str] = typer.Option(None, "--class", "-c", help="Change the class ('none' clears it).",
+                                          autocompletion=_complete_class_option),
 ):
     """Edit a session: its date, times and what you covered. Asks which session from today or this week."""
     store, _ = _load()
@@ -415,7 +498,7 @@ def _show_dashboard(week: str | None = None) -> None:
 @app.command()
 def status(
     watch: bool = typer.Option(False, "--watch", "-W", help="Live-updating dashboard (ctrl-c to quit)."),
-    week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_HELP),
+    week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_HELP, autocompletion=_complete_week),
 ):
     """Studying or not, hours today, and the week."""
     store, cfg = _load()
@@ -437,7 +520,8 @@ def status(
 # ── quick views ──────────────────────────────────────────────────────────────
 
 @app.command("v-today")
-def view_today(day: Optional[str] = typer.Argument(None, help="Another day instead: yesterday, tue, 10/14.")):
+def view_today(day: Optional[str] = typer.Argument(None, help="Another day instead: yesterday, tue, 10/14.",
+                                                        autocompletion=_complete_day)):
     """View today's sessions: a timeline plus what you covered in each."""
     store, cfg = _load()
     d = parse_date(day) if day else date.today()
@@ -456,7 +540,7 @@ def view_today(day: Optional[str] = typer.Argument(None, help="Another day inste
 
 
 @app.command("v-week")
-def view_week(week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_HELP)):
+def view_week(week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_HELP, autocompletion=_complete_week)):
     """View a week: hours per day, every session and the totals."""
     store, cfg = _load()
     monday = parse_week(week)
@@ -562,7 +646,8 @@ def class_add(name: list[str] = typer.Argument(..., help="The class name. Separa
 
 
 @class_app.command("rm")
-def class_rm(name: list[str] = typer.Argument(..., help="The class to remove.")):
+def class_rm(name: list[str] = typer.Argument(..., help="The class to remove.",
+                                                   autocompletion=_class_word_completer("name"))):
     """Remove a class from your list. Past sessions keep it, so no hours are lost."""
     store, _ = _load()
     c = _class_arg(store, " ".join(name))
@@ -596,7 +681,7 @@ app.add_typer(todo_app, name="todo")
 
 
 @todo_app.callback()
-def _todo_root(ctx: typer.Context, week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_HELP)):
+def _todo_root(ctx: typer.Context, week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_HELP, autocompletion=_complete_week)):
     if ctx.invoked_subcommand is None:
         _show_todos(parse_week(week))
 
@@ -618,8 +703,9 @@ def _todo_ids(store: Store, ids: list[int]):
 
 
 @todo_app.command("add")
-def todo_add(text: list[str] = typer.Argument(..., help="What to do. Start with a class to tag it: la problem set 4."),
-             week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_HELP)):
+def todo_add(text: list[str] = typer.Argument(..., help="What to do. Start with a class to tag it: la problem set 4.",
+                                            autocompletion=_class_word_completer("text")),
+             week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_HELP, autocompletion=_complete_week)):
     """Add a to-do for this week (or another with -w). [dim]e.g. cram todo add chem read ch 7[/]"""
     store, _ = _load()
     monday = parse_week(week)
@@ -632,7 +718,8 @@ def todo_add(text: list[str] = typer.Argument(..., help="What to do. Start with 
 
 
 @todo_app.command("done")
-def todo_done(ids: list[int] = typer.Argument(..., help="The to-do number(s), from cram todo.")):
+def todo_done(ids: list[int] = typer.Argument(..., help="The to-do number(s), from cram todo.",
+                                               autocompletion=_todo_completer("open"))):
     """Check off to-dos. [dim]e.g. cram todo done 2 3[/]"""
     store, _ = _load()
     for t in _todo_ids(store, ids):
@@ -642,7 +729,8 @@ def todo_done(ids: list[int] = typer.Argument(..., help="The to-do number(s), fr
 
 
 @todo_app.command("undo")
-def todo_undo(ids: list[int] = typer.Argument(..., help="The to-do number(s) to un-check.")):
+def todo_undo(ids: list[int] = typer.Argument(..., help="The to-do number(s) to un-check.",
+                                               autocompletion=_todo_completer("done"))):
     """Un-check to-dos you checked off by mistake."""
     store, _ = _load()
     for t in _todo_ids(store, ids):
@@ -652,7 +740,8 @@ def todo_undo(ids: list[int] = typer.Argument(..., help="The to-do number(s) to 
 
 
 @todo_app.command("rm")
-def todo_rm(ids: list[int] = typer.Argument(..., help="The to-do number(s) to delete.")):
+def todo_rm(ids: list[int] = typer.Argument(..., help="The to-do number(s) to delete.",
+                                             autocompletion=_todo_completer("all"))):
     """Delete to-dos."""
     store, _ = _load()
     for t in _todo_ids(store, ids):
@@ -662,7 +751,7 @@ def todo_rm(ids: list[int] = typer.Argument(..., help="The to-do number(s) to de
 
 
 @todo_app.command("clear")
-def todo_clear(week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_HELP)):
+def todo_clear(week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_HELP, autocompletion=_complete_week)):
     """Delete the checked-off to-dos for a week."""
     store, _ = _load()
     monday = parse_week(week)

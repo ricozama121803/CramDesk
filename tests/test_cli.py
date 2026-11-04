@@ -334,3 +334,37 @@ def test_todo_shows_in_the_week_view_and_undo():
     assert "to-do" in cram("v-week").output and "finish essay" in cram("v-week").output
     assert "add to-do “finish essay”" in cram("undo").output
     assert Store.load().todos == []
+
+
+def complete(line):
+    """What tab would offer for `line` in bash (a trailing space means a new, empty word)."""
+    words = line.split()
+    cword = len(words) if line.endswith(" ") else len(words) - 1
+    r = runner.invoke(app, [], prog_name="cram",
+                      env={"_CRAM_COMPLETE": "complete_bash", "COMP_WORDS": line, "COMP_CWORD": str(cword)})
+    return r.output.split()
+
+
+def test_tab_completes_commands_and_class_names_word_by_word():
+    cram("class", "add", "Linear Algebra, Linear Programming, Chemistry")
+    assert {"in", "out", "todo", "class"} <= set(complete("cram "))
+    assert complete("cram in lin") == ["linear"]
+    assert complete("cram in linear ") == ["algebra", "programming"]
+    assert complete("cram in --at 9am ch") == ["chemistry"]
+    assert set(complete("cram in -c ")) == {"none", "la", "lp", "chemistry"}   # a word cram will understand
+    assert complete("cram class rm linear p") == ["programming"]
+
+
+def test_tab_completes_todo_numbers_weeks_and_days():
+    cram("todo", "add", "read ch 7")
+    cram("todo", "add", "problem set")
+    cram("todo", "done", "2")
+    assert complete("cram todo done ") == ["1"]          # only the open ones
+    assert complete("cram todo undo ") == ["2"]          # only the checked-off ones
+    assert complete("cram v-week -w ") == ["this", "last", "next", "-2"]
+    assert complete("cram v-today ye") == ["yesterday"]
+
+
+def test_week_next_works():
+    from cram.timeutil import parse_week
+    assert parse_week("next", MON) == MON + timedelta(weeks=1)

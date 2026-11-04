@@ -143,7 +143,7 @@ def parse_when(s: str, default_date: date | None = None) -> datetime:
 
 
 def parse_week(s: str | None, ref: date | None = None) -> date:
-    """this | last | -2 | any date inside the week  ->  that week's Monday"""
+    """this | last | next | -2 | any date inside the week  ->  that week's Monday"""
     ref = ref or today()
     cur = week_start(ref)
     if s is None:
@@ -153,6 +153,8 @@ def parse_week(s: str | None, ref: date | None = None) -> date:
         return cur
     if s in ("last", "prev", "previous"):
         return cur - timedelta(weeks=1)
+    if s == "next":
+        return cur + timedelta(weeks=1)
     if re.fullmatch(r"[-+]\d{1,3}", s):
         return cur + timedelta(weeks=int(s))
     return week_start(parse_date(s, ref))

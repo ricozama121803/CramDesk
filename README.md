@@ -19,6 +19,15 @@ cram
 
 The first launch asks for your classes and a color theme. Press `esc` to skip.
 
+**Tab completion** (bash, zsh, fish): run this once, then open a new terminal.
+
+```sh
+cram --install-completion
+```
+
+`tab` then completes commands, class names one word at a time (`cram in lin<tab>` → `linear`,
+`al<tab>` → `algebra`), to-do numbers (`cram todo done <tab>`), weeks (`-w <tab>`) and days.
+
 ## Classes
 
 Add the classes you're taking, then say which one you're studying when you start:
