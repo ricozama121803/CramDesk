@@ -18,6 +18,7 @@ class Session:
     start: datetime
     end: datetime | None = None
     notes: list[str] = field(default_factory=list)
+    course: str | None = None  # the class this session was for
 
     @property
     def running(self) -> bool:
@@ -44,6 +45,7 @@ class Session:
             "start": self.start.isoformat(timespec="minutes"),
             "end": self.end.isoformat(timespec="minutes") if self.end else None,
             "notes": self.notes,
+            "class": self.course,
         }
 
     @classmethod
@@ -53,6 +55,7 @@ class Session:
             start=datetime.fromisoformat(d["start"]),
             end=datetime.fromisoformat(d["end"]) if d.get("end") else None,
             notes=list(d.get("notes") or []),
+            course=d.get("class") or None,
         )
 
 
@@ -61,9 +64,10 @@ class DataError(Exception):
 
 
 class Store:
-    def __init__(self, sessions: list[Session], next_id: int):
+    def __init__(self, sessions: list[Session], next_id: int, classes: list[str] | None = None):
         self.sessions = sessions
         self.next_id = next_id
+        self.classes: list[str] = classes or []
 
     # ── io ──
     @classmethod
@@ -89,13 +93,14 @@ class Store:
             print(f"cram: {path.name} was damaged, restored the backup (damaged copy kept as {broken.name})",
                   file=sys.stderr)
         next_id = raw.get("next_id") or (max((s.id for s in sessions), default=0) + 1)
-        return cls(sessions, next_id)
+        return cls(sessions, next_id, [c for c in raw.get("classes", []) if isinstance(c, str)])
 
     def save(self, record: bool = True) -> None:
         path = data_file()
         payload = {
             "version": 1,
             "next_id": self.next_id,
+            "classes": self.classes,
             "sessions": [s.to_dict() for s in sorted(self.sessions, key=lambda s: s.start)],
         }
         text = json.dumps(payload, indent=2)
@@ -128,8 +133,8 @@ class Store:
     def on_day(self, d: date) -> list[Session]:
         return sorted((s for s in self.sessions if s.day == d), key=lambda s: s.start)
 
-    def add(self, start: datetime, end: datetime | None, notes: list[str]) -> Session:
-        s = Session(self.next_id, start, end, notes)
+    def add(self, start: datetime, end: datetime | None, notes: list[str], course: str | None = None) -> Session:
+        s = Session(self.next_id, start, end, notes, course)
         self.next_id += 1
         self.sessions.append(s)
         return s
@@ -146,3 +151,76 @@ class Store:
             if start < s_end and s.start < end:
                 return s
         return None
+
+    # ── classes ──
+    def find_class(self, name: str) -> str | None:
+        """The saved spelling of a class, matched without caring about case or extra spaces."""
+        key = " ".join(name.split()).lower()
+        return next((c for c in self.classes if c.lower() == key), None)
+
+    def add_class(self, name: str) -> str:
+        """Add a class (or return the existing one with that name)."""
+        name = " ".join(name.split())
+        if not name:
+            raise ValueError("a class needs a name")
+        found = self.find_class(name)
+        if found:
+            return found
+        self.classes.append(name)
+        return name
+
+    def remove_class(self, name: str) -> str | None:
+        """Take a class off your list. Past sessions keep their class so the hours aren't lost."""
+        found = self.find_class(name)
+        if found:
+            self.classes.remove(found)
+        return found
+
+    def rename_class(self, old: str, new: str) -> str:
+        found = self.find_class(old)
+        if not found:
+            raise ValueError(f"no class called '{old}'")
+        new = " ".join(new.split())
+        other = self.find_class(new)
+        if not new or (other and other != found):
+            raise ValueError(f"'{new}' is already a class" if new else "a class needs a name")
+        self.classes[self.classes.index(found)] = new
+        for s in self.sessions:
+            if s.course == found:
+                s.course = new
+        return new
+
+    def match_class(self, text: str) -> tuple[str | None, str]:
+        """Split typed text into (class, the rest).
+
+        'linear algebra eigenvectors' -> ('Linear Algebra', 'eigenvectors') when that class exists.
+        A short form works too when it fits only one class: the start of the name ('linear', 'chem')
+        or its initials ('la'). Anything else -> (None, text)."""
+        return match_class(self.classes, text)
+
+
+def _initials(name: str) -> str:
+    return "".join(w[0] for w in name.split()).lower()
+
+
+def match_class(classes: list[str], text: str) -> tuple[str | None, str]:
+    words = text.split()
+    if not words or not classes:
+        return None, " ".join(words)
+    low = [w.lower() for w in words]
+    # 1. the full class name at the start (the longest one wins: "Chem Lab" over "Chem")
+    best = None
+    for c in classes:
+        cw = c.lower().split()
+        if low[: len(cw)] == cw and (best is None or len(cw) > len(best.split())):
+            best = c
+    if best:
+        return best, " ".join(words[len(best.split()):])
+    # 2. a short form of one class in the first word
+    first = low[0]
+    hits = [c for c in classes
+            if (len(first) >= 3 and c.lower().startswith(first))
+            or (len(c.split()) > 1 and _initials(c) == first)]
+    if len(hits) == 1:
+        return hits[0], " ".join(words[1:])
+    return None, " ".join(words)

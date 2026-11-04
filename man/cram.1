@@ -25,30 +25,35 @@ When output is not a terminal, plain
 prints the dashboard instead.
 .PP
 Everything is written to disk the moment it changes.
-Weeks run Monday to Sunday; a block that runs past midnight counts on the day it started.
+Weeks run Monday to Sunday; a session that runs past midnight counts on the day it started.
 .SH THE APP
 Type into the prompt bar at the bottom:
 .TP
-.BR in " [\fIitem\fR]"
-Punch in, optionally with the first thing you are working on.
+.BR in " [\fIclass\fR] [\fInote\fR]"
+Start studying. The words after \fBin\fR are matched against your classes:
+the full name (\fBin linear algebra\fR), the start of it (\fBin linear\fR) or its initials (\fBin la\fR).
+Anything after the class becomes the first note. If nothing matches you are asked whether to add it as a class.
 .TP
 .B out
-Punch out. Shows what you did, asks "Did you do anything else not listed?",
-lets you adjust the day and times, then saves the block.
+Stop. Shows what you covered, asks "Did you do anything else not listed?",
+lets you adjust the day and times, then saves the session.
 .TP
 .BR undo " [\fIn\fR], " redo " [\fIn\fR]"
 Take back the last change (or put it back).
 .TP
 .BR /vday " [\fIday\fR]"
-View a day: its blocks, total and a timeline bar. Enter on a block edits it;
-the last row, \fB+ add a block\fR, adds one.
+View a day: its sessions, total and a timeline bar. Enter on a session edits it;
+the last row, \fB+ add a session\fR, adds one.
 .TP
 .BR /vweek " [\fIweek\fR]"
-View a week's blocks with a timeline per day.
+View a week's sessions with a timeline per day.
 .TP
 .BR /weeks
 A calendar of all your weeks. Up/down picks one;
 Enter opens its log.
+.TP
+.B /classes
+Add or remove your classes, with hours this week and in total.
 .TP
 .B /config
 Color theme.
@@ -57,24 +62,24 @@ Color theme.
 All commands and keys.
 .PP
 Typing \fB/\fR opens a menu of these; arrow keys pick one, Tab completes, Enter runs it.
-What you are working on goes in the separate \fIworking on\fR box.
+What you cover goes in the separate \fInotes\fR box.
 .PP
-If a block's times overlap another block you are offered to merge them, fit the new block
-into the free gap, shorten the other block, or replace it.
+If a session's times overlap another session you are offered to merge them, fit the new session
+into the free gap, shorten the other session, or replace it.
 .SS Keys
 .TP 18
 .B tab
 Switch between the prompt bar and the top section.
 .TP
 .B arrows
-In the top section, move between the working-on box, its items, the today panel
+In the top section, move between the notes box, its notes, the today panel
 and the week panel. Enter on a panel opens it.
 .TP
 .B ctrl+s
-Punch in / punch out.
+Start studying / stop.
 .TP
 .B ctrl+n
-Jump to the working-on box.
+Jump to the notes box.
 .TP
 .BR ctrl+z ", " ctrl+y
 Undo, redo.
@@ -83,7 +88,7 @@ Undo, redo.
 Command palette (past sessions, themes, ...).
 .TP
 .B ctrl+t
-Fix the last block's times.
+Fix the last session's times.
 .TP
 .B ctrl+l
 Week log.
@@ -92,45 +97,50 @@ Week log.
 Show or hide the side panels.
 .TP
 .BR f2 ", " delete
-Rename or remove the selected item.
+Rename or remove the selected note.
 .TP
 .B f1
 All shortcuts.
 .TP
 .B ctrl+q
-Quit. Always asks first; when you are on the clock you can punch out or keep the clock running.
+Quit. Always asks first; when you are studying you can stop or keep the session running.
 .SH COMMANDS
 Week arguments (\fB\-w\fR) accept \fBthis\fR, \fBlast\fR, \fB\-2\fR, or any date inside the week.
 Days accept \fBtoday\fR, \fByesterday\fR, weekday names, \fB10/14\fR, \fB10/14/26\fR or \fB2026\-10\-14\fR.
 Times accept \fB9\fR, \fB9am\fR, \fB9:30pm\fR, \fB930pm\fR, \fB21:30\fR, \fBnoon\fR and \fBmidnight\fR.
 .TP
-.BR in " [\fIitem\fR...] [\fB\-\-at\fR \fItime\fR]"
-Clock in.
+.BR in " [\fIclass\fR] [\fInote\fR...] [\fB\-\-at\fR \fItime\fR] [\fB\-c\fR \fIclass\fR]"
+Start studying. The class is matched the same way as in the app; \fB\-c\fR names it explicitly.
+An ambiguous short name (\fBchem\fR for both Chemistry and Chem Lab) is refused.
 .TP
-.BR out " [\fIitem\fR...] [\fB\-\-at\fR \fItime\fR]"
-Clock out. Without an item it shows the block and asks for anything missing.
+.BR out " [\fInote\fR...] [\fB\-\-at\fR \fItime\fR]"
+Stop studying. Without a note it shows the session and asks for anything missing.
 .TP
 .BR add " [\fItext\fR...]"
-Describe what you did in the current block. Without text it asks for lines.
-Off the clock, it asks whether to add to an earlier block, then lets you pick one from today or
+Describe what you covered in the current session. Without text it asks for lines.
+When you're not studying, it asks whether to add to an earlier session, then lets you pick one from today or
 another day this week.
 .TP
-.BR edit " [\fB\-\-date\fR] [\fB\-\-start\fR] [\fB\-\-end\fR] [\fB\-\-note\fR]... [\fB\-\-add\-note\fR]..."
-Change a block. Lets you pick one from today or another day this week, then choose to edit its time or what
-you did, in place. A block from today keeps its date. If the new times overlap another block, it offers to
+.BR edit " [\fB\-c\fR \fIclass\fR] [\fB\-\-date\fR] [\fB\-\-start\fR] [\fB\-\-end\fR] [\fB\-\-note\fR]... [\fB\-\-add\-note\fR]..."
+Change a session. Lets you pick one from today or another day this week, then choose to edit its time, what
+you covered, or its class, in place. A session from today keeps its date. If the new times overlap another session, it offers to
 merge them, fit this one into the gap, shorten the other, replace it, or change the times again.
 .TP
 .B v\-block
-Show the block you are clocked into, or your most recent one.
+Show the session you are in, or your most recent one.
 .TP
 .BR v\-today " [\fIday\fR]"
-Show a day's timeline and its blocks. Defaults to today.
+Show a day's timeline and its sessions. Defaults to today.
 .TP
 .BR v\-week " [\fB\-w\fR \fIweek\fR]"
-Show hours per day, every block and the totals for a week.
+Show hours per day, every session and the totals for a week.
 .TP
 .BR status " [\fB\-W\fR] [\fB\-w\fR \fIweek\fR]"
-On or off the clock, hours worked today, and the week; \fB\-W\fR keeps it live.
+Studying or not, hours studied today, and the week; \fB\-W\fR keeps it live.
+.TP
+.BR class " [\fBadd\fR \fIname\fR[, \fIname\fR...] | \fBrm\fR \fIname\fR | \fBrename\fR \fIold\fR \fInew\fR]"
+Manage your classes. On its own (or as \fBcram classes\fR) it lists them with hours this week, in total,
+and when you last studied each. Removing a class keeps it on past sessions, so no hours are lost.
 .TP
 .BR weeks " [\fB\-n\fR \fIcount\fR]"
 Recent weeks with hours studied and days studied.
@@ -161,7 +171,7 @@ The log. \fIdata.json.bak\fR is the previous version; a damaged file is replaced
 Undo history.
 .TP
 .I ~/.local/share/cram/session.json
-Heartbeat used to notice that cram closed unexpectedly while you were clocked in.
+Heartbeat used to notice that cram closed unexpectedly while you were studying.
 .SH ENVIRONMENT
 .TP
 .B CRAM_HOME
@@ -170,7 +180,7 @@ Keep config, data and cache in this one folder instead (handy for testing).
 .BR XDG_CONFIG_HOME ", " XDG_DATA_HOME ", " XDG_CACHE_HOME
 Respected when \fBCRAM_HOME\fR is not set.
 .SH EXIT STATUS
-0 on success, 1 when a command is refused (for example clocking in twice), 2 when an argument
+0 on success, 1 when a command is refused (for example starting twice), 2 when an argument
 cannot be read (for example a time like \fB25pm\fR).
 .SH EXAMPLES
 .nf

@@ -16,7 +16,7 @@ runner = CliRunner()
 
 
 def block(day, start_h, end_h, note):
-    """Put a finished block straight into the store."""
+    """Put a finished session straight into the store."""
     d = datetime.strptime(day, "%m/%d/%y").date()
     st = Store.load()
     st.add(datetime.combine(d, time(start_h)), datetime.combine(d, time(end_h)), [note])
@@ -30,13 +30,13 @@ def cram(*args, input=None):
 def test_clock_in_twice_is_refused():
     assert cram("in", "--at", "10/14/26 9am", "first").exit_code == 0
     r = cram("in", "--at", "10/14/26 10am")
-    assert r.exit_code == 1 and "Already on the clock" in r.output
+    assert r.exit_code == 1 and "Already studying" in r.output
     assert len(Store.load().sessions) == 1
 
 
 def test_clock_out_without_clocking_in():
     r = cram("out")
-    assert r.exit_code == 1 and "not clocked in" in r.output
+    assert r.exit_code == 1 and "not studying" in r.output
 
 
 def test_clock_out_before_the_start_is_refused():
@@ -61,7 +61,7 @@ def test_edit_into_another_block_is_refused():
 
 def test_add_with_nothing_logged():
     r = cram("add", "hello")
-    assert r.exit_code == 1 and "off the clock" in r.output and "Nothing logged" in r.output
+    assert r.exit_code == 1 and "not studying" in r.output and "Nothing logged" in r.output
 
 
 def test_add_describes_the_running_block():
@@ -71,7 +71,7 @@ def test_add_describes_the_running_block():
 
 
 def _this_week_blocks():
-    """One block today and one on another day of this week."""
+    """One session today and one on another day of this week."""
     today = date.today()
     other = today + timedelta(days=1 if today.weekday() == 0 else -1)
     st = Store.load()
@@ -85,7 +85,7 @@ def test_add_off_the_clock_lets_you_pick_a_block_from_today(monkeypatch):
     monkeypatch.setattr(cli, "_tty", lambda: True)
     r = cram("add", "late note", input="y\n1\n1\n")
     assert r.exit_code == 0, r.output
-    assert "off the clock" in r.output and "From today" in r.output
+    assert "not studying" in r.output and "From today" in r.output
     notes = {s.notes[0]: s.notes for s in Store.load().sessions}
     assert notes["today thing"] == ["today thing", "late note"]
     assert notes["other thing"] == ["other thing"]
@@ -137,7 +137,7 @@ def test_weeks_shows_hours_without_billing():
 def test_undo_redo_from_the_cli():
     assert "Nothing left to undo" in cram("undo").output
     block("10/14/26", 9, 10, "a")
-    assert "Undid: add block" in cram("undo").output
+    assert "Undid: add session" in cram("undo").output
     assert Store.load().sessions == []
     assert "Redid" in cram("redo").output
     assert len(Store.load().sessions) == 1
@@ -152,17 +152,17 @@ def test_bad_time_gives_a_friendly_message_not_a_traceback(home):
 
 def test_plain_cram_without_a_terminal_prints_the_dashboard():
     r = cram()
-    assert r.exit_code == 0 and "OFF THE CLOCK" in r.output
+    assert r.exit_code == 0 and "NOT STUDYING" in r.output
 
 
 def test_view_block_shows_the_running_block_then_the_last_one():
     assert cram("v-block").exit_code == 1
     block("10/14/26", 9, 10, "old work")
     r = cram("v-block")
-    assert r.exit_code == 0 and "off the clock currently" in r.output and "what I did" in r.output and "old work" in r.output
+    assert r.exit_code == 0 and "not studying right now" in r.output and "what I covered" in r.output and "old work" in r.output
     cram("in", "new work")
     r = cram("v-block")
-    assert "on the clock" in r.output and "new work" in r.output and "old work" not in r.output
+    assert "studying" in r.output and "new work" in r.output and "old work" not in r.output
 
 
 def test_view_today_and_week():
@@ -196,10 +196,10 @@ def test_edit_time_then_what_i_did_too(monkeypatch):
 
 def test_status_is_simple():
     r = cram("status")
-    assert r.exit_code == 0 and "OFF THE CLOCK" in r.output and "today" in r.output and "week" in r.output
+    assert r.exit_code == 0 and "NOT STUDYING" in r.output and "today" in r.output and "week" in r.output
     cram("in", "working")
     r = cram("status")
-    assert "ON THE CLOCK" in r.output and "working" in r.output and "what I did" in r.output
+    assert "STUDYING" in r.output and "working" in r.output and "what I covered" in r.output
 
 
 def test_removed_commands_are_gone():
@@ -247,3 +247,63 @@ def test_edit_overlap_change_the_times_instead(monkeypatch):
     assert r.exit_code == 0, r.output
     s = next(s for s in Store.load().sessions if s.notes == ["today thing"])
     assert s.end.hour == 2 and s.end.minute == 30
+
+
+def test_class_add_list_rename_and_remove():
+    r = cram("class", "add", "Linear", "Algebra,", "Chemistry")
+    assert r.exit_code == 0 and "Added Linear Algebra" in r.output and "Added Chemistry" in r.output
+    assert "already one of your classes" in cram("class", "add", "chemistry").output
+    cram("in", "--at", "10/14/26 9am", "linear", "algebra", "eigenvectors")
+    cram("out", "--at", "10/14/26 10am", "done")
+    s = Store.load().sessions[0]
+    assert s.course == "Linear Algebra" and s.notes == ["eigenvectors", "done"]
+    r = cram("classes")
+    assert "Linear Algebra" in r.output and "Chemistry" in r.output and "never" in r.output
+    assert cram("class", "rename", "linear algebra", "Lin Alg").exit_code == 0
+    assert Store.load().sessions[0].course == "Lin Alg"
+    r = cram("class", "rm", "lin alg")
+    assert r.exit_code == 0 and "keep the class" in r.output
+    assert Store.load().classes == ["Chemistry"] and Store.load().sessions[0].course == "Lin Alg"
+
+
+def test_in_matches_short_names_and_refuses_ambiguous_ones():
+    cram("class", "add", "Chemistry, Chem Lab, US History")
+    r = cram("in", "--at", "10/14/26 9am", "chem")
+    assert r.exit_code == 1 and "Chemistry or Chem Lab" in r.output
+    cram("in", "--at", "10/14/26 9am", "uh", "reading")         # initials
+    assert Store.load().running().course == "US History"
+    assert Store.load().running().notes == ["reading"]
+
+
+def test_in_with_unknown_text_without_a_terminal_is_just_a_note():
+    cram("class", "add", "Chemistry")
+    cram("in", "--at", "10/14/26 9am", "random", "reading")
+    s = Store.load().running()
+    assert s.course is None and s.notes == ["random reading"]
+    assert Store.load().classes == ["Chemistry"]
+
+
+def test_class_option_and_edit_class():
+    cram("class", "add", "Chemistry, Linear Algebra")
+    assert cram("in", "--at", "10/14/26 9am", "-c", "bio").exit_code == 1
+    cram("in", "--at", "10/14/26 9am", "-c", "chem", "titration")
+    cram("out", "--at", "10/14/26 10am", "x")
+    assert Store.load().sessions[0].course == "Chemistry"
+    assert cram("edit", "1", "-c", "la").exit_code == 0
+    assert Store.load().sessions[0].course == "Linear Algebra"
+    assert cram("edit", "1", "-c", "none").exit_code == 0
+    assert Store.load().sessions[0].course is None
+
+
+def test_week_view_shows_hours_per_class():
+    cram("class", "add", "Chemistry, Linear Algebra")
+    cram("in", "--at", "10/14/26 9am", "chemistry"); cram("out", "--at", "10/14/26 10am", "x")
+    cram("in", "--at", "10/14/26 11am", "la"); cram("out", "--at", "10/14/26 11:30am", "x")
+    r = cram("v-week", "-w", "10/14/26")
+    assert "by class" in r.output and "Chemistry" in r.output and "67%" in r.output and "33%" in r.output
+
+
+def test_undo_takes_back_a_new_class():
+    cram("class", "add", "Chemistry")
+    assert "add class Chemistry" in cram("undo").output
+    assert Store.load().classes == []

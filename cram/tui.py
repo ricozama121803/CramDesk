@@ -47,29 +47,30 @@ LEONIDA = Theme(
 # every shortcut, for the F1 sheet (the footer only shows the first few)
 SHORTCUTS = [
     ("prompt bar", "(bottom)"),
-    ("  in [item]", "punch in, optionally with your first item"),
-    ("  out", "punch out: review, add anything missing, save"),
+    ("  in [class]", "start studying, optionally naming the class"),
+    ("  out", "stop: review, add anything missing, save"),
     ("  undo / redo", "take back your last change (or put it back)"),
     ("  /vday [day]", "view a day           /vday yesterday"),
     ("  /vweek [week]", "view the week's times  /vweek last"),
+    ("  /classes", "add or remove your classes"),
     ("  /weeks", "calendar of weeks: ↑↓ pick · enter open"),
     ("  /config", "color theme"),
     ("", ""),
     ("tab", "switch between the prompt bar and the top section"),
-    ("arrows (top section)", "move between items, working on, today and week"),
-    ("  in the item list", "f2 rename · delete remove · esc back"),
+    ("arrows (top section)", "move between notes, today and week"),
+    ("  in the note list", "f2 rename · delete remove · esc back"),
     ("enter (on a panel)", "open today / the week"),
-    ("ctrl+s", "punch in / punch out"),
+    ("ctrl+s", "start / stop studying"),
     ("ctrl+z · ctrl+y", "undo · redo"),
-    ("ctrl+n", "jump to the working-on box"),
+    ("ctrl+n", "jump to the notes box"),
     ("ctrl+p", "command palette: everything else"),
-    ("ctrl+t", "fix the last block's times"),
+    ("ctrl+t", "fix the last session's times"),
     ("ctrl+l", "week log"),
     ("ctrl+b", "toggle the side panels"),
     ("ctrl+q", "quit"),
     ("", ""),
-    ("in the week log", "enter edit · ctrl+n new block · delete remove · [ ] switch weeks · esc back"),
-    ("punching out", "enter adds a line · empty enter or ctrl+s saves · esc keeps you clocked in"),
+    ("in the week log", "enter edit · ctrl+n new session · delete remove · [ ] switch weeks · esc back"),
+    ("stopping", "enter adds a line · empty enter or ctrl+s saves · esc keeps you studying"),
 ]
 
 
@@ -83,10 +84,11 @@ def _today_view(store: Store) -> Table:
         g.add_row(Text("nothing yet", style=ui.T.dim), "", "")
     for s in blocks:
         rng = Text(fmt_range(s.start, s.end), style=f"bold {ui.T.ok}" if s.running else ui.T.text)
-        first = s.notes[0] if s.notes else "—"
-        more = f"  +{len(s.notes) - 1}" if len(s.notes) > 1 else ""
-        g.add_row(rng, Text(fmt_hm(s.minutes()), style=ui.T.accent2),
-                  Text(first, style=ui.T.muted, overflow="ellipsis", no_wrap=True) + Text(more, style=ui.T.dim))
+        what = Text(s.course or ui.NO_CLASS, style=f"bold {ui.T.text}" if s.course else ui.T.dim,
+                    overflow="ellipsis", no_wrap=True)
+        if s.notes:
+            what.append(f"  {s.notes[0]}", style=ui.T.muted)
+        g.add_row(rng, Text(fmt_hm(s.minutes()), style=ui.T.accent2), what)
     total = sum(s.minutes() for s in blocks)
     if blocks:
         g.add_row(Text("total", style=ui.T.dim), Text(fmt_hm(total), style=f"bold {ui.T.text}"), "")
@@ -96,11 +98,11 @@ def _today_view(store: Store) -> Table:
 # ── dialogs ──────────────────────────────────────────────────────────────────
 
 class ItemList(OptionList):
-    """A list of work items. delete removes, f2 renames (handled by the owner)."""
+    """A list of notes. delete removes, f2 renames (handled by the owner)."""
 
     BINDINGS = [
-        Binding("delete,backspace", "remove", "remove item", show=False),
-        Binding("f2", "rename", "rename item", show=False),
+        Binding("delete,backspace", "remove", "remove note", show=False),
+        Binding("f2", "rename", "rename note", show=False),
         Binding("escape", "back", "back", show=False),
         Binding("down", "down", show=False),
         Binding("right", "nav('right')", show=False),
@@ -145,7 +147,7 @@ def _item_text(i: int, s: str) -> Text:
 
 
 class BlockEditor(ModalScreen[bool]):
-    """Confirm / edit / create a time block. mode: out | edit | add"""
+    """Confirm / edit / create a study session. mode: out | edit | add"""
 
     BINDINGS = [
         Binding("ctrl+s", "save", "save"),
@@ -158,6 +160,7 @@ class BlockEditor(ModalScreen[bool]):
         self.mode = mode
         self.sid = session.id if session else None
         self.items: list[str] = list(session.notes) if session else []
+        self.course: str | None = session.course if session else None
         if session:
             start = session.start
             end = session.end or end or now()
@@ -174,13 +177,13 @@ class BlockEditor(ModalScreen[bool]):
         self.changed = False  # something was written to disk while the editor was open
 
     def compose(self) -> ComposeResult:
-        titles = {"out": "punch out", "edit": "edit block", "add": "add a past block"}
+        titles = {"out": "stop session", "edit": "edit session", "add": "add a past session"}
         if self.live:
             titles["edit"] = "edit descriptions"
         if self.mode == "out":
-            q = "Did you do anything else not listed?" if self.items else "What did you work on?"
+            q = "Did you cover anything else?" if self.items else "What did you cover?"
         else:
-            q = "Add an item"
+            q = "Add a note"
         with Vertical(id="dialog") as v:
             v.border_title = titles[self.mode]
             with Horizontal(id="times"):
@@ -191,15 +194,21 @@ class BlockEditor(ModalScreen[bool]):
                 yield Label("to")
                 yield Input(self.v_end, id="end", placeholder="5:00pm")
             yield Static(id="span")
-            yield Label("what you did", classes="section")
+            with Horizontal(id="classrow"):
+                yield Label("class")
+                classes = Store.load().classes
+                yield Input(self.course or "", id="course",
+                            placeholder=", ".join(classes[:4]) + (" …" if len(classes) > 4 else "") if classes
+                            else "none yet: add classes with /classes")
+            yield Label("what you covered", classes="section")
             yield ItemList(id="items")
             yield Label(q, id="question")
             yield ItemInput(id="extra", placeholder="type + enter, saved right away")
             yield Static(id="error")
-            items_hint = (" · ", ("↑", "bold"), " items: ", ("f2", "bold"), " rename ", ("del", "bold"), " remove")
+            items_hint = (" · ", ("↑", "bold"), " notes: ", ("f2", "bold"), " rename ", ("del", "bold"), " remove")
             if self.mode == "out":
                 hint = Text.assemble(("enter", "bold"), " adds a line (saved) · ", ("empty enter", "bold"), "/",
-                                     ("ctrl+s", "bold"), " punches out · ", ("esc", "bold"), " keep working", *items_hint)
+                                     ("ctrl+s", "bold"), " stops the session · ", ("esc", "bold"), " keep studying", *items_hint)
             elif self.mode == "add":
                 hint = Text.assemble("fill in the times, then ", ("enter", "bold"), " saves each line · ",
                                      ("esc", "bold"), " close", *items_hint)
@@ -236,7 +245,7 @@ class BlockEditor(ModalScreen[bool]):
             st = self.live_start
             span.update(Text.assemble(
                 (f"{DAY_ABBR[st.weekday()]} {fmt_md(st.date())}", f"bold {ui.T.text}"), ("  ·  ", ui.T.dim),
-                (f"{fmt_time(st)}-now", f"bold {ui.T.ok}"), ("  ·  still running, times are set when you punch out", ui.T.dim)))
+                (f"{fmt_time(st)}-now", f"bold {ui.T.ok}"), ("  ·  still running, times are set when you stop", ui.T.dim)))
             return
         try:
             st, en = self._parse()
@@ -256,7 +265,7 @@ class BlockEditor(ModalScreen[bool]):
     @on(Input.Submitted, "#day, #start, #end")
     def _next_field(self, event: Input.Submitted) -> None:
         # editing a finished block: times save as soon as they're all valid
-        order = ["day", "start", "end", "extra"]
+        order = ["day", "start", "end", "course"]
         nxt = self.query_one(f"#{order[order.index(event.input.id) + 1]}", Input)
         if self.mode == "edit" and not self.live and self.sid is not None:
             times = self._valid_times()
@@ -267,6 +276,28 @@ class BlockEditor(ModalScreen[bool]):
                 self._commit(*times, then=lambda: (self._saved("times saved"), nxt.focus()))
                 return
         nxt.focus()
+
+    @on(Input.Submitted, "#course")
+    def _course_done(self, event: Input.Submitted) -> None:
+        store = Store.load()
+        text = event.value.strip()
+        if text:
+            course, rest = store.match_class(text)
+            if not course or rest:
+                self._error(f"'{text}' isn't one of your classes (add it with /classes)")
+                return
+        else:
+            course = None
+        event.input.value = course or ""
+        if course != self.course:
+            self.course = course
+            s = store.get(self.sid) if self.sid else None
+            if s:
+                s.course = course
+                store.save()
+                self.changed = True
+                self._saved("class saved")
+        self.query_one("#extra", Input).focus()
 
     @on(Input.Submitted, "#extra")
     def _add_item(self, event: Input.Submitted) -> None:
@@ -317,14 +348,17 @@ class BlockEditor(ModalScreen[bool]):
         return st, en
 
     def _commit(self, st: datetime, en: datetime, then) -> None:
-        """Save this block's times + items, sorting out any overlap first."""
+        """Save this session's times + items, sorting out any overlap first."""
         store = Store.load()
         if conflict.overlapping(store, st, en, self.sid):
             def chosen(how: str | None) -> None:
                 if how in (None, "back"):
-                    self._error("times overlap another block; change them or pick a fix")
+                    self._error("times overlap another session; change them or pick a fix")
                     return
-                self.sid = conflict.apply(Store.load(), how, st, en, list(self.items), self.sid)
+                fixed = Store.load()
+                self.sid = conflict.apply(fixed, how, st, en, list(self.items), self.sid)
+                fixed.get(self.sid).course = self.course
+                fixed.save()
                 s = Store.load().get(self.sid)
                 self.items = list(s.notes)
                 self._refresh_items()
@@ -338,23 +372,23 @@ class BlockEditor(ModalScreen[bool]):
             return
         s = store.get(self.sid) if self.sid else None
         if s:
-            s.start, s.end, s.notes = st, en, list(self.items)
+            s.start, s.end, s.notes, s.course = st, en, list(self.items), self.course
         else:
-            self.sid = store.add(st, en, list(self.items)).id
+            self.sid = store.add(st, en, list(self.items), self.course).id
         store.save()
         self.changed = True
         then()
 
     def _persist_items(self, what: str = "saved") -> None:
-        """Write the item list to disk right away."""
+        """Write the note list to disk right away."""
         if self.sid is None:
             # a brand-new past block: create it as soon as its times are valid
             times = self._valid_times()
             if times is None:
                 self.query_one("#error", Static).update(
-                    Text("fill in valid times above and this block will save", style=ui.T.warn))
+                    Text("fill in valid times above and this session will save", style=ui.T.warn))
                 return
-            self._commit(*times, then=lambda: self._saved("block saved"))
+            self._commit(*times, then=lambda: self._saved("session saved"))
             return
         store = Store.load()
         s = store.get(self.sid)
@@ -393,7 +427,7 @@ class BlockEditor(ModalScreen[bool]):
 
 
 class ConflictScreen(ModalScreen[str]):
-    """Two blocks claim the same time: pick how to fix it."""
+    """Two sessions claim the same time: pick how to fix it."""
 
     KEYS = {"merge": "m", "trim": "t", "shorten": "s", "replace": "r"}
     LABELS = {"merge": "merge them", "trim": "fit into the gap", "shorten": "shorten the other",
@@ -416,7 +450,7 @@ class ConflictScreen(ModalScreen[str]):
     def compose(self) -> ComposeResult:
         with Vertical(id="confirm", classes="wide") as v:
             v.border_title = "times overlap"
-            head = Text.assemble(("This block ", ui.T.text),
+            head = Text.assemble(("This session ", ui.T.text),
                                  (f"{fmt_md(self.st.date())} {fmt_range(self.st, self.en)}", f"bold {ui.T.accent2}"),
                                  (" overlaps:", ui.T.text))
             for o in self.others:
@@ -484,7 +518,7 @@ class KeysSheet(ModalScreen[None]):
 # ── week log ─────────────────────────────────────────────────────────────────
 
 class BlockTable(DataTable):
-    """A table of blocks; enter (shown in the footer as "edit") opens the selected one."""
+    """A table of sessions; enter (shown in the footer as "edit") opens the selected one."""
 
     BINDINGS = [Binding("enter", "select_cursor", "edit")]
 
@@ -493,7 +527,7 @@ class LogScreen(Screen):
     BINDINGS = [
         Binding("escape", "app.pop_screen", "back"),
         Binding("f2", "edit", "edit", show=False),
-        Binding("ctrl+n", "new", "new block"),
+        Binding("ctrl+n", "new", "new session"),
         Binding("delete", "delete", "delete"),
         Binding("left_square_bracket", "week(-1)", "prev week", show=False),
         Binding("right_square_bracket", "week(1)", "next week", show=False),
@@ -513,7 +547,7 @@ class LogScreen(Screen):
 
     def on_mount(self) -> None:
         t = self.query_one(DataTable)
-        t.add_columns("day", "time", "dur", "what")
+        t.add_columns("day", "time", "dur", "class", "what")
         self.reload()
 
     def reload(self) -> None:
@@ -536,6 +570,7 @@ class LogScreen(Screen):
                 rng.stylize(f"bold {ui.T.ok}")
                 rng.append("  ● running", style=f"bold {ui.T.ok}")
             t.add_row(day, rng, fmt_hm(s.minutes()),
+                      Text(s.course or "—", style=f"bold {ui.T.accent}" if s.course else ui.T.faint),
                       Text(" · ".join(s.notes) or "—", overflow="ellipsis", no_wrap=True), key=str(s.id))
         self.query_one("#logtotal", Static).update(ui.totals_line(r))
         self._timeline(store)
@@ -601,7 +636,7 @@ class LogScreen(Screen):
             store.save()
             self.reload()
 
-        self.app.push_screen(Confirm(f"Delete block #{s.id} ({fmt_md(s.day)} {fmt_range(s.start, s.end)})?"), done)
+        self.app.push_screen(Confirm(f"Delete session #{s.id} ({fmt_md(s.day)} {fmt_range(s.start, s.end)})?"), done)
 
 
 # ── crash safety ─────────────────────────────────────────────────────────────
@@ -633,13 +668,14 @@ def read_heartbeat() -> dict | None:
 # ── prompt bar ───────────────────────────────────────────────────────────────
 
 SLASH = [
-    ("/vday", "view a day's blocks", "/vday yesterday"),
+    ("/vday", "view a day's sessions", "/vday yesterday"),
     ("/vweek", "view the week's times", "/vweek last"),
+    ("/classes", "add or remove your classes", ""),
     ("/weeks", "pick any week on a calendar", ""),
     ("/config", "color theme", ""),
     ("/help", "commands and shortcuts", ""),
 ]
-WORDS = [("in", "punch in", "in fixing the scraper"), ("out", "punch out", "")]
+WORDS = [("in", "start studying", "in linear algebra"), ("out", "stop", "")]
 
 
 class CommandInput(Input):
@@ -674,7 +710,7 @@ class CommandInput(Input):
 
 
 class ItemInput(Input):
-    """Where you type what you're working on. Up jumps into the item list;
+    """Where you type what you're covering. Up jumps into the note list;
     right at the end of the text moves over to the side panels."""
 
     BINDINGS = [
@@ -825,8 +861,8 @@ class DayScreen(Screen):
         Binding("escape", "app.pop_screen", "back"),
         Binding("q", "app.pop_screen", "back", show=False),
         Binding("f2", "edit", "edit", show=False),
-        Binding("ctrl+n", "new", "new block"),
-        Binding("delete", "delete", "delete block"),
+        Binding("ctrl+n", "new", "new session"),
+        Binding("delete", "delete", "delete session"),
         Binding("left_square_bracket", "day(-1)", "prev day"),
         Binding("right_square_bracket", "day(1)", "next day"),
     ]
@@ -847,7 +883,8 @@ class DayScreen(Screen):
         t = self.query_one(DataTable)
         t.add_column("time", key="time")
         t.add_column("dur", key="dur")
-        t.add_column("what you did", key="what")
+        t.add_column("class", key="class")
+        t.add_column("what you covered", key="what")
         self.reload()
         self.set_interval(5, self.reload)
         t.focus()
@@ -865,12 +902,12 @@ class DayScreen(Screen):
         box_ = self.query_one("#logbox")
         n = len(blocks)
         box_.border_title = (f"{DAY_ABBR[self.day.weekday()]} {fmt_mdy(self.day)}  ·  {fmt_hm(total)}"
-                             f"  ·  {n} block{'s' if n != 1 else ''}")
+                             f"  ·  {n} session{'s' if n != 1 else ''}")
         box_.border_subtitle = "● session in progress" if live else "enter to edit a session"
         box_.set_class(live, "unsaved")
 
         t = self.query_one(DataTable)
-        snapshot = tuple((s.id, s.start, s.end, tuple(s.notes), s.minutes()) for s in blocks)
+        snapshot = tuple((s.id, s.start, s.end, tuple(s.notes), s.minutes(), s.course) for s in blocks)
         if snapshot != self._shown:
             self._shown = snapshot
             keep = t.cursor_row
@@ -880,10 +917,11 @@ class DayScreen(Screen):
                 if s.running:
                     rng.append("\n● running", style=f"bold {ui.T.ok}")
                 what = ui.notes_text(s.notes) if s.notes else Text("— no description yet, enter to add one", style=ui.T.dim)
-                t.add_row(rng, Text(fmt_hm(s.minutes()), style=ui.T.accent2), what, key=str(s.id), height=None)
+                cls = Text(s.course or "—", style=f"bold {ui.T.accent}" if s.course else ui.T.faint)
+                t.add_row(rng, Text(fmt_hm(s.minutes()), style=ui.T.accent2), cls, what, key=str(s.id), height=None)
             # last row: always there, enter on it adds a block for this day
-            t.add_row(Text("+", style=f"bold {ui.T.accent}"), "",
-                      Text("add a block" + ("" if blocks else " (nothing logged this day yet)"), style=ui.T.muted),
+            t.add_row(Text("+", style=f"bold {ui.T.accent}"), "", "",
+                      Text("add a session" + ("" if blocks else " (nothing logged this day yet)"), style=ui.T.muted),
                       key="add")
             t.move_cursor(row=min(keep, len(blocks)))
         self.query_one("#dayempty", Static).update("")
@@ -922,7 +960,7 @@ class DayScreen(Screen):
 
     def _edited(self, saved: bool | None) -> None:
         if saved:
-            self.app.notify("Block updated.", title="✓ saved")
+            self.app.notify("Session updated.", title="✓ saved")
         self._shown = None
         self.reload()
 
@@ -934,7 +972,7 @@ class DayScreen(Screen):
         if not s:
             return
         if s.running:
-            self.app.notify("That block is still running. Punch out first.", severity="warning")
+            self.app.notify("That session is still running. Stop it first.", severity="warning")
             return
 
         def done(yes: bool | None) -> None:
@@ -945,7 +983,7 @@ class DayScreen(Screen):
             store.save()
             self._edited(False)
 
-        self.app.push_screen(Confirm(f"Delete block {fmt_range(s.start, s.end)} on {fmt_md(s.day)}?"), done)
+        self.app.push_screen(Confirm(f"Delete session {fmt_range(s.start, s.end)} on {fmt_md(s.day)}?"), done)
 
 
 def _theme_options() -> list[Option]:
@@ -1003,6 +1041,83 @@ class ConfigScreen(ModalScreen[bool]):
         self.app.run_cli("config", "--edit", wait=False)
 
 
+class ClassesScreen(ModalScreen[bool]):
+    """Your classes: type a name + enter to add one; on the list, delete removes it."""
+
+    BINDINGS = [
+        Binding("escape", "close", "close"),
+        Binding("delete", "remove", "remove", show=False),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="dialog") as v:
+            v.border_title = "classes"
+            yield Static(id="classhead")
+            yield OptionList(id="classlist")
+            yield Label("add a class", classes="field")
+            yield Input(id="newclass", placeholder="e.g. Linear Algebra, then enter")
+            yield Static(id="error")
+            yield Static(Text.assemble(("enter", "bold"), " adds · ", ("tab", "bold"), " to the list, ",
+                                       ("delete", "bold"), " removes · ", ("esc", "bold"), " close",
+                                       style=ui.T.muted), id="hint")
+
+    def on_mount(self) -> None:
+        self.reload()
+        self.query_one("#newclass").focus()
+
+    def reload(self) -> None:
+        store = Store.load()
+        monday = week_start(date.today())
+        ol = self.query_one("#classlist", OptionList)
+        keep = ol.highlighted
+        ol.clear_options()
+        for c in store.classes:
+            mine = [s for s in store.sessions if s.course == c]
+            week = sum(s.minutes() for s in mine if s.week == monday)
+            total = sum(s.minutes() for s in mine)
+            ol.add_option(Option(Text.assemble((f"{c:<28}", f"bold {ui.T.text}"),
+                                               (f"{fmt_hm(week) if week else '·':>9}", ui.T.text),
+                                               (f"{fmt_hm(total) if total else '·':>10}", ui.T.accent2)), id=c))
+        ol.display = bool(store.classes)
+        if store.classes:
+            ol.highlighted = min(keep or 0, len(store.classes) - 1)
+        head = Text.assemble((f"{'class':<28}", f"bold {ui.T.muted}"), (f"{'this week':>9}", f"bold {ui.T.muted}"),
+                             (f"{'total':>10}", f"bold {ui.T.muted}"))
+        self.query_one("#classhead", Static).update(
+            head if store.classes else Text("No classes yet. Add the ones you're taking below.", style=ui.T.dim))
+
+    @on(Input.Submitted, "#newclass")
+    def _add(self, ev: Input.Submitted) -> None:
+        if not ev.value.strip():
+            self.action_close()
+            return
+        store = Store.load()
+        added = [store.add_class(p) for p in ev.value.split(",") if p.strip()]
+        store.save()
+        ev.input.value = ""
+        self.query_one("#error", Static).update(Text(f"✓ added {', '.join(added)}", style=f"bold {ui.T.ok}"))
+        self.reload()
+
+    def action_remove(self) -> None:
+        ol = self.query_one("#classlist", OptionList)
+        if self.focused is not ol or ol.highlighted is None:
+            return
+        name = ol.get_option_at_index(ol.highlighted).id
+
+        def done(yes: bool | None) -> None:
+            if yes:
+                store = Store.load()
+                store.remove_class(name)
+                store.save()
+                self.query_one("#error", Static).update(
+                    Text(f"removed {name} (past sessions keep it)", style=ui.T.muted))
+                self.reload()
+        self.app.push_screen(Confirm(f"Remove {name} from your classes? Past sessions keep it."), done)
+
+    def action_close(self) -> None:
+        self.dismiss(True)
+
+
 class ObPage(Static, can_focus=True):
     """A setup page with nothing to type: enter moves on."""
 
@@ -1018,7 +1133,7 @@ class OnboardingScreen(ModalScreen[bool]):
         Binding("escape", "skip", "skip setup"),
         Binding("ctrl+s", "next", "next", show=False),
     ]
-    STEPS = [("welcome", "welcome"), ("look", "pick a look"), ("tour", "you're set")]
+    STEPS = [("welcome", "welcome"), ("classes", "your classes"), ("look", "pick a look"), ("tour", "you're set")]
 
     def __init__(self, cfg: dict):
         super().__init__()
@@ -1035,8 +1150,16 @@ class OnboardingScreen(ModalScreen[bool]):
                     ("Welcome! ", f"bold {ui.T.accent}"),
                     ("cram is a study clock for your terminal. Start a session, jot down what you're "
                      "studying, stop, and see how many hours you put in each day and week.\n\n", ui.T.text),
-                    ("Setup is one step: pick a color theme. You can change it later with ", ui.T.muted),
-                    ("/config", f"bold {ui.T.text}"), (".", ui.T.muted)))
+                    ("Two quick steps: add the classes you're taking, then pick a color theme. "
+                     "You can change both later with ", ui.T.muted), ("/classes", f"bold {ui.T.text}"),
+                    (" and ", ui.T.muted), ("/config", f"bold {ui.T.text}"), (".", ui.T.muted)))
+            with Vertical(id="ob-classes", classes="ob-step"):
+                yield Static(Text.assemble(
+                    ("Add each class you study for. Then ", ui.T.text), ("in linear algebra", f"bold {ui.T.accent}"),
+                    (" (or just ", ui.T.text), ("in la", f"bold {ui.T.accent}"), (") logs time for it.\n", ui.T.text)))
+                yield Label("class name  (enter adds it; empty enter when you're done)", classes="field")
+                yield Input(id="ob-class", placeholder="e.g. Linear Algebra")
+                yield Static(id="ob-classlist")
             with Vertical(id="ob-look", classes="ob-step"):
                 yield Label("color theme  (↑↓ previews)", classes="field")
                 yield OptionList(*_theme_options(), id="themes")
@@ -1052,7 +1175,7 @@ class OnboardingScreen(ModalScreen[bool]):
         t.add_column(style=ui.T.text)
         for k, v in [
             ("in", "type it in the bar at the bottom to start studying"),
-            ("working on", "list what you're covering as you go; it becomes the log"),
+            ("notes", "list what you're covering as you go; it becomes the log"),
             ("out", "stop: review the session and save it"),
             ("tab", "switch between the bottom bar and the top section"),
             ("arrows", "move between your notes, today and the week"),
@@ -1085,6 +1208,9 @@ class OnboardingScreen(ModalScreen[bool]):
             self.query_one("#ob-tour ObPage", Static).update(self._tour())
         if sid == "look":
             self.query_one("#themes").focus()
+        elif sid == "classes":
+            self._show_classes()
+            self.query_one("#ob-class").focus()
         else:
             self.query_one(f"#ob-{sid} ObPage").focus()
 
@@ -1095,6 +1221,27 @@ class OnboardingScreen(ModalScreen[bool]):
     @on(OptionList.OptionSelected, "#themes")
     def _theme_done(self) -> None:
         self.action_next()
+
+    def _show_classes(self) -> None:
+        classes = Store.load().classes
+        out = Text()
+        for c in classes:
+            out.append("  › ", style=ui.T.accent)
+            out.append(f"{c}\n", style=f"bold {ui.T.text}")
+        self.query_one("#ob-classlist", Static).update(out if classes else Text("  none yet", style=ui.T.dim))
+
+    @on(Input.Submitted, "#ob-class")
+    def _class_added(self, ev: Input.Submitted) -> None:
+        if not ev.value.strip():
+            self.action_next()
+            return
+        store = Store.load()
+        for part in ev.value.split(","):
+            if part.strip():
+                store.add_class(part)
+        store.save()
+        ev.input.value = ""
+        self._show_classes()
 
     def _save_step(self) -> None:
         if self.STEPS[self.step][0] == "look":
@@ -1120,10 +1267,10 @@ class OnboardingScreen(ModalScreen[bool]):
 
 
 class RecoverScreen(ModalScreen[str]):
-    """Shown when cram died while you were on the clock."""
+    """Shown when cram died while you were studying."""
 
     BINDINGS = [
-        Binding("k,escape", "pick('keep')", "still working"),
+        Binding("k,escape", "pick('keep')", "still studying"),
         Binding("e", "pick('end')", "end it then"),
     ]
 
@@ -1137,25 +1284,25 @@ class RecoverScreen(ModalScreen[str]):
             v.border_title = "cram closed unexpectedly"
             yield Static(Text.assemble(
                 ("Nothing was lost. ", f"bold {ui.T.ok}"),
-                (f"You're still clocked in since {fmt_time(self.run.start)}", ui.T.text),
+                (f"Your session is still running, since {fmt_time(self.run.start)}", ui.T.text),
                 (f" ({DAY_ABBR[self.run.day.weekday()]} {fmt_md(self.run.day)}).\n", ui.T.text),
                 (f"cram last saw you at {fmt_time(self.last_seen)}, {fmt_hm(int(gap.total_seconds() // 60))} ago.", ui.T.muted),
             ))
             yield Static("")
-            yield Static(Text.assemble(("k", f"bold {ui.T.accent}"), "  keep the clock running (I'm still working)\n",
-                                       ("e", f"bold {ui.T.accent}"), f"  end the block at {fmt_time(self.last_seen)} (you can adjust it)"))
+            yield Static(Text.assemble(("k", f"bold {ui.T.accent}"), "  keep the session running (I'm still studying)\n",
+                                       ("e", f"bold {ui.T.accent}"), f"  end the session at {fmt_time(self.last_seen)} (you can adjust it)"))
 
     def action_pick(self, what: str) -> None:
         self.dismiss(what)
 
 
 class QuitScreen(ModalScreen[str]):
-    """Are you sure? / punch out or stay clocked in."""
+    """Are you sure? / stop or keep studying."""
 
     BINDINGS = [
         Binding("escape", "pick('cancel')", "cancel"),
-        Binding("o", "pick('out')", "punch out", show=False),
-        Binding("k", "pick('stay')", "stay clocked in", show=False),
+        Binding("o", "pick('out')", "stop", show=False),
+        Binding("k", "pick('stay')", "keep studying", show=False),
         Binding("s,y", "pick('save')", "save & quit", show=False),
         Binding("d", "pick('discard')", "don't save", show=False),
     ]
@@ -1169,23 +1316,23 @@ class QuitScreen(ModalScreen[str]):
             if self.run:
                 v.border_title = "quit cram?"
                 yield Static(Text.assemble(
-                    ("You're on the clock", f"bold {ui.T.ok}"),
+                    ("You're studying", f"bold {ui.T.ok}"),
                     (f" since {fmt_time(self.run.start)} ({fmt_hm(self.run.minutes())}).\n", ui.T.text),
-                    ("Punch out, or stay clocked in while cram is closed?", ui.T.text),
+                    ("Stop now, or keep the session running while cram is closed?", ui.T.text),
                 ))
-                opts = [("out", "o", "punch out", "save the block, then quit"),
-                        ("stay", "k", "stay clocked in", "the clock keeps running"),
-                        ("discard", "d", "don't save", "throw away this block" + (" and typed item" if self.draft else "")),
+                opts = [("out", "o", "stop", "save the session, then quit"),
+                        ("stay", "k", "keep studying", "the session keeps running"),
+                        ("discard", "d", "don't save", "throw away this session" + (" and typed note" if self.draft else "")),
                         ("cancel", "esc", "cancel", "back to cram")]
             else:
                 v.border_title = "quit cram?"
                 yield Static(Text("Are you sure? Everything will be saved.", style=f"bold {ui.T.text}"))
                 opts = [("save", "s", "save and quit", "everything is kept"),
-                        ("discard", "d", "don't save", "throw away the typed item" if self.draft else "quit"),
+                        ("discard", "d", "don't save", "throw away the typed note" if self.draft else "quit"),
                         ("cancel", "esc", "cancel", "back to cram")]
             if self.draft:
-                where = "added to your block" if self.run else "kept for next time"
-                yield Static(Text(f"Your typed item “{self.draft}” will be {where} unless you don't save.",
+                where = "added to your session" if self.run else "kept for next time"
+                yield Static(Text(f"Your typed note “{self.draft}” will be {where} unless you don't save.",
                                   style=ui.T.muted))
             yield OptionList(*[
                 Option(Text.assemble((f"{key:<5}", f"bold {ui.T.accent}"), (f"{label:<17}", f"bold {ui.T.text}"),
@@ -1212,9 +1359,9 @@ class QuitScreen(ModalScreen[str]):
 
 class MainScreen(Screen):
     BINDINGS = [
-        Binding("ctrl+n", "new_item", "add item", show=False),
-        Binding("ctrl+s", "punch_in", "punch in", show=False),
-        Binding("ctrl+s", "punch_out", "punch out", show=False),
+        Binding("ctrl+n", "new_item", "add note", show=False),
+        Binding("ctrl+s", "punch_in", "start studying", show=False),
+        Binding("ctrl+s", "punch_out", "stop", show=False),
         Binding("tab", "toggle_area", "switch window"),
         Binding("ctrl+tab", "toggle_area", "switch window", show=False),
         Binding("ctrl+shift+tab", "toggle_area", "switch window", show=False),
@@ -1242,7 +1389,7 @@ class MainScreen(Screen):
         with Horizontal(id="main"):
             with Vertical(id="now"):
                 yield Static(id="clock")
-                yield Label("working on", id="items-label", classes="section")
+                yield Label("notes", id="items-label", classes="section")
                 yield ItemList(id="items")
                 yield ItemInput(id="new")
             with Vertical(id="side"):
@@ -1280,7 +1427,7 @@ class MainScreen(Screen):
         def done(_ok: bool | None) -> None:
             self.app.reload_config()
             self.query_one("#cmd", Input).focus()
-            self.app.notify("Type [b]in[/b] below to punch in.", title="all set")
+            self.app.notify("Type [b]in[/b] below to start studying.", title="all set")
         self.app.push_screen(OnboardingScreen(self.cfg), done)
 
     def on_resize(self) -> None:
@@ -1315,7 +1462,7 @@ class MainScreen(Screen):
             self.app.notify("cram closed unexpectedly last time. Nothing was lost.", title="recovered")
 
     def _mascot_tick(self) -> None:
-        """Asleep off the clock; the bell wakes him when you punch in; then he fights."""
+        """Asleep when you're not studying; the bell wakes him when you start studying; then he swims."""
         running = getattr(self, "running", None) is not None
         mode = getattr(self, "_mode", None)
         if mode is None:
@@ -1357,28 +1504,29 @@ class MainScreen(Screen):
         nowbox = self.query_one("#now")
         new = self.query_one("#new", Input)
         if run:
-            head.add_row(ui.chip("● ON THE CLOCK", ui.T.ok), stamp)
+            head.add_row(ui.chip("● STUDYING", ui.T.ok), stamp)
             if clock_w >= 32 and self.size.height >= 22:
                 clock = ui.big(ui.clock_str(run.seconds(at)))
             else:
                 clock = ui.gradient(ui.clock_str(run.seconds(at)))
-            meta = Text.assemble(("punched in at ", ui.T.dim), (fmt_time(run.start), f"bold {ui.T.text}"))
-            nowbox.border_title = "now"
-            new.placeholder = "+ what are you working on?  enter to add"
+            meta = Text.assemble((run.course or "no class", f"bold {ui.T.accent}" if run.course else ui.T.dim),
+                                 ("  ·  since ", ui.T.dim), (fmt_time(run.start), f"bold {ui.T.text}"))
+            nowbox.border_title = run.course or "now"
+            new.placeholder = "+ what are you covering?  enter to add"
             new.disabled = False
             notes = tuple(run.notes)
         else:
             today_min = sum(s.minutes() for s in store.on_day(date.today()))
-            head.add_row(ui.chip("○ OFF THE CLOCK", ui.T.dim), stamp)
+            head.add_row(ui.chip("○ NOT STUDYING", ui.T.dim), stamp)
             hhmm = ui.clock_str(today_min * 60, with_seconds=False)
             if clock_w >= 20 and self.size.height >= 22:
                 clock = ui.big(hhmm, stops=[ui.T.dim, ui.T.muted])
             else:
                 clock = ui.gradient(hhmm, stops=[ui.T.dim, ui.T.muted])
-            label = Text("time worked today", style=ui.T.muted)
+            label = Text("studied today", style=ui.T.muted)
             meta = Text("")
             nowbox.border_title = "cram"
-            new.placeholder = "punch in first: type in below"
+            new.placeholder = "start studying first: type in below"
             notes = ()
         if side_hidden:
             wk_min = sum(s.minutes() for s in store.in_week(week_start(date.today())))
@@ -1418,7 +1566,8 @@ class MainScreen(Screen):
         week.border_subtitle = "● in progress" if run else ""
         week.set_class(run is not None, "unsaved")
         bar_w = max(4, min(26, (week.content_size.width or 56) - 30))
-        week.update(Group(ui.week_bars(store, r.monday, at, width=bar_w), Text(""), ui.totals_line(r)))
+        week.update(Group(ui.week_bars(store, r.monday, at, width=bar_w), Text(""),
+                          ui.class_bars(store.in_week(r.monday), at, width=max(4, bar_w - 6)), Text(""), ui.totals_line(r)))
         self._status(run, r)
 
     def _status(self, run: Session | None, r: report.Report) -> None:
@@ -1427,13 +1576,13 @@ class MainScreen(Screen):
         wide = self.size.width >= 110
         if draft:  # the only thing that isn't on disk yet
             left.append("● unsaved  ", style=f"bold {ui.T.warn}")
-            left.append("typed item not added yet (enter)" if wide else "typed item (enter)", style=ui.T.muted)
+            left.append("typed note not added yet (enter)" if wide else "typed note (enter)", style=ui.T.muted)
             if run:
-                left.append(f"  ·  on the clock since {fmt_time(run.start)}", style=ui.T.dim)
+                left.append(f"  ·  studying since {fmt_time(run.start)}", style=ui.T.dim)
         elif run:
-            left.append("● on the clock  ", style=f"bold {ui.T.ok}")
+            left.append("● studying  ", style=f"bold {ui.T.ok}")
             left.append(f"since {fmt_time(run.start)}", style=ui.T.muted)
-            left.append("  ·  everything saved" + ("  (out to finish the block)" if wide else ""), style=ui.T.dim)
+            left.append("  ·  everything saved" + ("  (out to finish the session)" if wide else ""), style=ui.T.dim)
         else:
             left.append("✓ saved  ", style=f"bold {ui.T.ok}")
             left.append("week log is up to date", style=ui.T.dim)
@@ -1491,20 +1640,44 @@ class MainScreen(Screen):
 
     # ── punching ──
     def _start(self, text: str) -> None:
+        """'in linear algebra ch 5' -> a session for that class with 'ch 5' as its first note."""
+        store = Store.load()
+        course, rest = store.match_class(text)
+        if course or not text:
+            self._begin(course, rest)
+            return
+        first = text.split()[0].lower()
+        hits = [c for c in store.classes if len(first) >= 3 and c.lower().startswith(first)]
+        if len(hits) > 1:
+            self.app.notify(f"'{text.split()[0]}' could be {' or '.join(hits)}. Type more of the name.",
+                            severity="warning")
+            return
+
+        def answered(add: bool | None) -> None:
+            if add:
+                st = Store.load()
+                name = st.add_class(text)
+                st.save()
+                self._begin(name, "")
+            else:
+                self._begin(None, text)
+        self.app.push_screen(Confirm(f"'{text}' isn't one of your classes. Add it as a class?"), answered)
+
+    def _begin(self, course: str | None, text: str) -> None:
         store = Store.load()
         t = now()
         o = store.overlap(t, None)
         if o:
-            self.app.notify(f"Overlaps block #{o.id}.", severity="error")
+            self.app.notify(f"Overlaps session #{o.id}.", severity="error")
             return
         notes = [text] if text else []
         draft = self.query_one("#new", Input).value.strip()
         if draft:
             notes.append(draft)
             self.query_one("#new", Input).value = ""
-        store.add(t, None, notes)
+        store.add(t, None, notes, course)
         store.save()
-        self.app.notify(f"Punched in at {fmt_time(t)}", title="● on the clock")
+        self.app.notify(f"{course or 'Studying'} from {fmt_time(t)}", title="● studying")
         self.reload()
         self.query_one("#new", Input).focus()
 
@@ -1512,7 +1685,7 @@ class MainScreen(Screen):
         store = Store.load()
         run = store.running()
         if not run:
-            self.app.notify("You're not on the clock.")
+            self.app.notify("You're not studying right now.")
             return
         inp = self.query_one("#new", Input)
         if inp.value.strip():
@@ -1523,7 +1696,7 @@ class MainScreen(Screen):
         def done(saved: bool | None) -> None:
             if saved:
                 s = Store.load().get(run.id)
-                self.app.notify(f"{fmt_range(s.start, s.end)} · {fmt_hm(s.minutes())}", title="✓ block saved")
+                self.app.notify(f"{fmt_range(s.start, s.end)} · {fmt_hm(s.minutes())}", title="✓ session saved")
                 if then:
                     then()
                     return
@@ -1575,7 +1748,7 @@ class MainScreen(Screen):
         word = word.lower()
         if word == "in":
             if self.running:
-                self.app.notify("Already on the clock.")
+                self.app.notify("Already studying.")
             else:
                 self._start(rest.strip())
         elif word == "out":
@@ -1587,7 +1760,7 @@ class MainScreen(Screen):
         else:
             event.input.value = text
             self.app.notify("Commands are [b]in[/b], [b]out[/b], [b]undo[/b], [b]redo[/b] or [b]/…[/b]. "
-                            "Items go in the working-on box ([b]tab[/b]).", severity="warning")
+                            "Notes go in the notes box ([b]tab[/b]).", severity="warning")
 
     def slash(self, cmd: str, arg: str) -> None:
         cmd = cmd.lower()
@@ -1600,6 +1773,8 @@ class MainScreen(Screen):
                 self.app.push_screen(WeekPicker())
             elif cmd == "/config":
                 self.action_config()
+            elif cmd == "/classes":
+                self.action_classes()
             elif cmd == "/help":
                 self.action_keys()
             else:
@@ -1625,7 +1800,7 @@ class MainScreen(Screen):
                 self._start("")
             return
         if not self.running:
-            self.app.notify("Punch in first: type [b]in[/b] in the prompt bar (your text is kept).")
+            self.app.notify("Start studying first: type [b]in[/b] in the prompt bar (your text is kept).")
             self.query_one("#cmd", Input).focus()
             return
         event.input.value = ""
@@ -1674,7 +1849,7 @@ class MainScreen(Screen):
         store = Store.load()
         s = store.running() or store.last()
         if s and s.running:
-            self.app.notify("Times are set when you punch out.")
+            self.app.notify("Times are set when you stop.")
             return
         if s:
             self.app.push_screen(BlockEditor(s, "edit"), lambda ok: self.reload())
@@ -1685,6 +1860,9 @@ class MainScreen(Screen):
             if saved:
                 self.app.notify(f"theme {self.cfg['ui']['theme']}", title="✓ config saved")
         self.app.push_screen(ConfigScreen(self.cfg), done)
+
+    def action_classes(self) -> None:
+        self.app.push_screen(ClassesScreen(), lambda _: self.reload())
 
     def action_keys(self) -> None:
         self.app.push_screen(KeysSheet())
@@ -1705,17 +1883,18 @@ class CramCommands(Provider):
         app: CramApp = self.app  # type: ignore[assignment]
         main = app.main
         return [
-            ("Punch in / out", "ctrl+s · or type in / out", lambda: main.action_punch_out() if main.running else main.action_punch_in()),
-            ("Add item", "ctrl+n · what you're working on", main.action_new_item),
+            ("Start / stop studying", "ctrl+s · or type in / out", lambda: main.action_punch_out() if main.running else main.action_punch_in()),
+            ("Add note", "ctrl+n · what you're covering", main.action_new_item),
             ("View day", "/vday", lambda: main.slash("/vday", "")),
             ("View week", "/vweek · ctrl+l", main.action_log),
             ("Pick a week…", "/weeks · open any past week", lambda: app.push_screen(WeekPicker())),
             ("Undo", "ctrl+z · or type undo", app.action_undo),
             ("Redo", "ctrl+y · or type redo", app.action_redo),
+            ("Classes", "/classes · add or remove your classes", main.action_classes),
             ("Config: color theme", "/config", main.action_config),
-            ("Add a past block", "forgot to punch in? log it here", lambda: app.push_screen(
+            ("Add a past session", "forgot to start studying? log it here", lambda: app.push_screen(
                 BlockEditor(None, "add"), lambda ok: main.reload())),
-            ("Edit last block times", "ctrl+t", main.action_edit_block),
+            ("Edit last session times", "ctrl+t", main.action_edit_block),
             ("Weeks history", "hours studied per week", lambda: app.run_cli("weeks")),
             ("Edit full config file", "theme, banner, mascot", lambda: app.run_cli("config", "--edit", wait=False)),
             ("Keyboard shortcuts", "f1", main.action_keys),
@@ -1784,7 +1963,7 @@ class CramApp(App):
     #cmd { border: none; height: 1; padding: 0; background: transparent; }
     #status { height: 1; padding: 0 3; }
 
-    BlockEditor, Confirm, KeysSheet, ConfigScreen, RecoverScreen, QuitScreen, ConflictScreen, OnboardingScreen {
+    BlockEditor, Confirm, KeysSheet, ConfigScreen, ClassesScreen, RecoverScreen, QuitScreen, ConflictScreen, OnboardingScreen {
         align: center middle; background: $background 60%;
     }
     #dialog {
@@ -1794,7 +1973,10 @@ class CramApp(App):
     #times { height: auto; }
     #times Label { padding: 1 1 0 0; color: $text-muted; }
     #times Input { width: 1fr; border: tall $foreground 20%; background: transparent; }
-    #times Input:focus, #extra:focus { border: tall $accent; }
+    #classrow { height: auto; }
+    #classrow Label { padding: 1 1 0 0; color: $text-muted; }
+    #course { width: 1fr; border: tall $foreground 20%; background: transparent; }
+    #times Input:focus, #extra:focus, #course:focus { border: tall $accent; }
     #span { margin: 1 0 0 0; }
     #dialog #items { max-height: 12; }
     #question { margin-top: 1; color: $accent; text-style: bold; }
@@ -1802,6 +1984,10 @@ class CramApp(App):
     .field { color: $text-muted; margin-top: 1; }
     #quitopts { height: auto; margin-top: 1; background: transparent; border: none; }
     #quitopts > .option-list--option-highlighted { background: $primary 35%; text-style: none; }
+    #classlist { height: auto; max-height: 14; background: transparent; border: round $foreground 20%; }
+    #classlist:focus { border: round $accent; }
+    #newclass, #ob-class { border: tall $foreground 20%; background: transparent; }
+    #newclass:focus, #ob-class:focus { border: tall $accent; }
     #themes { height: auto; background: transparent; border: round $foreground 20%; }
     #themes:focus { border: round $accent; }
     #themes > .option-list--option-highlighted {
@@ -1890,7 +2076,7 @@ class CramApp(App):
 
                 if run:
                     self.push_screen(Confirm(
-                        f"Throw away the block from {fmt_time(run.start)} ({fmt_hm(run.minutes())})?\n"
+                        f"Throw away the session from {fmt_time(run.start)} ({fmt_hm(run.minutes())})?\n"
                         "It won't be logged."), drop)
                 else:
                     drop(True)

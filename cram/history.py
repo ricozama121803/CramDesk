@@ -1,4 +1,4 @@
-"""Undo / redo for the work log.
+"""Undo / redo for the study log.
 
 Every save records the file before and after. Undo puts the "before" back, redo the "after".
 Each entry gets a plain-English label worked out from what actually changed.
@@ -104,16 +104,18 @@ def describe(before: str | None, after: str | None) -> str:
     changes: list[str] = []
     for sid in b.keys() - a.keys():
         s = b[sid]
-        changes.append(f"punch in at {fmt_time(datetime.fromisoformat(s['start']))}" if not s.get("end")
-                       else f"add block {_block(s)}")
+        changes.append(f"start studying at {fmt_time(datetime.fromisoformat(s['start']))}" if not s.get("end")
+                       else f"add session {_block(s)}")
     for sid in a.keys() - b.keys():
-        changes.append(f"delete block {_block(a[sid])}")
+        changes.append(f"delete session {_block(a[sid])}")
     for sid in a.keys() & b.keys():
         old, new = a[sid], b[sid]
         if old.get("end") is None and new.get("end"):
-            changes.append(f"punch out ({_block(new)})")
+            changes.append(f"stop ({_block(new)})")
         elif (old["start"], old.get("end")) != (new["start"], new.get("end")):
             changes.append(f"change times to {_block(new)}")
+        if old.get("class") != new.get("class"):
+            changes.append(f"set class to {new.get('class') or 'none'} on {_block(new)}")
         on, nn = old.get("notes", []), new.get("notes", [])
         if on != nn:
             added = [x for x in nn if x not in on]
@@ -124,6 +126,13 @@ def describe(before: str | None, after: str | None) -> str:
                 changes.append(f"remove “{_short(removed[0])}”")
             else:
                 changes.append(f"edit description on {_block(new)}")
+    ca = json.loads(before).get("classes", []) if before else []
+    cb = json.loads(after).get("classes", []) if after else []
+    added, gone = [c for c in cb if c not in ca], [c for c in ca if c not in cb]
+    if len(added) == 1 and len(gone) == 1:
+        changes.append(f"rename class {gone[0]} to {added[0]}")
+    else:
+        changes += [f"add class {c}" for c in added] + [f"remove class {c}" for c in gone]
     if not changes:
         return "change"
     return changes[0] + (f" (+{len(changes) - 1} more)" if len(changes) > 1 else "")

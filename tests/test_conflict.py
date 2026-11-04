@@ -1,4 +1,4 @@
-"""Blocks whose times overlap: which fixes are offered and what they do."""
+"""Sessions whose times overlap: which fixes are offered and what they do."""
 from cram import conflict
 from cram.store import Store
 from tests.conftest import dt

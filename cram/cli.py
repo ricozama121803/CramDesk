@@ -53,7 +53,7 @@ def _fail(msg: str, code: int = 1):
 def _check_overlap(store: Store, start: datetime, end: datetime | None, exclude: int | None = None) -> None:
     o = store.overlap(start, end, exclude)
     if o:
-        _fail(f"That overlaps the block on {ui.block_label(o)}.")
+        _fail(f"That overlaps the session on {ui.block_label(o)}.")
 
 
 def _pick_week(store: Store, week: str | None) -> date:
@@ -70,7 +70,7 @@ def _tty() -> bool:
     return sys.stdin.isatty()
 
 
-def _ask_notes(prompt: str = "What did you work on?") -> list[str]:
+def _ask_notes(prompt: str = "What did you cover?") -> list[str]:
     if not _tty():
         return []
     ui.console.print(Text(f"  {prompt}", style=f"bold {ui.T.accent}"),
@@ -119,19 +119,19 @@ def _block_line(s: Session) -> str:
 
 
 def _pick_block(store: Store, ask_first: bool) -> Session:
-    """Let the user choose a block from today or another day this week."""
+    """Let the user choose a session from today or another day this week."""
     today = date.today()
     blocks = store.in_week(week_start(today))
     todays = [s for s in blocks if s.day == today]
     others = [s for s in blocks if s.day != today]
-    off = "You're off the clock. " if ask_first else ""
+    off = "You're not studying right now. " if ask_first else ""
     if not blocks:
-        _fail(f"{off}Nothing logged this week. [b]cram in[/] to start a block.")
+        _fail(f"{off}Nothing logged this week. [b]cram in[/] to start a session.")
     if not _tty():
-        _fail(f"{off}Run this in a terminal to pick a block.")
+        _fail(f"{off}Run this in a terminal to pick a session.")
     if ask_first:
-        ui.info("You're off the clock.")
-        if not Confirm.ask(Text("  Add it to an earlier block from today or this week?", style=f"bold {ui.T.text}"),
+        ui.info("You're not studying right now.")
+        if not Confirm.ask(Text("  Add it to an earlier session from today or this week?", style=f"bold {ui.T.text}"),
                            default=True):
             ui.info("Nothing added.")
             raise typer.Exit()
@@ -139,62 +139,102 @@ def _pick_block(store: Store, ask_first: bool) -> Session:
         pool = [todays, others][_choose("Which?", ["From today", "From another day this week"])]
     else:
         pool = todays or others
-        ui.info("Blocks from today:" if todays else "Nothing from today yet. Blocks from earlier this week:")
-    return pool[_choose("Which block?", [_block_line(s) for s in pool])]
+        ui.info("Sessions from today:" if todays else "Nothing from today yet. Sessions from earlier this week:")
+    return pool[_choose("Which session?", [_block_line(s) for s in pool])]
+
+
+def _ambiguous(store: Store, text: str) -> list[str]:
+    first = (text.split() or [""])[0].lower()
+    return [c for c in store.classes if len(first) >= 3 and c.lower().startswith(first)]
+
+
+def _class_arg(store: Store, value: str) -> str | None:
+    """An explicit --class value: must name one of your classes ('' or 'none' clears it)."""
+    if value.strip().lower() in ("", "none"):
+        return None
+    course, rest = store.match_class(value)
+    if course and not rest:
+        return course
+    hits = _ambiguous(store, value)
+    if len(hits) > 1:
+        _fail(f"'{value}' could be {' or '.join(hits)}. Type more of the name.")
+    _fail(f"'{value}' isn't one of your classes. Add it with [b]cram class add {value}[/].")
+
+
+def _split_class(store: Store, text: str) -> tuple[str | None, str]:
+    """What you typed after 'in' -> (class, note). Offers to add a new class when nothing matches."""
+    course, rest = store.match_class(text)
+    if course or not text:
+        return course, rest
+    hits = _ambiguous(store, text)
+    if len(hits) > 1:
+        _fail(f"'{text.split()[0]}' could be {' or '.join(hits)}. Type more of the name.")
+    if _tty():
+        if Confirm.ask(Text(f"  '{text}' isn't one of your classes. Add it as a class?", style=f"bold {ui.T.text}"),
+                       default=True):
+            return store.add_class(text), ""
+        return None, text
+    return None, text
 
 
 # ── clocking ─────────────────────────────────────────────────────────────────
 
 @app.command("in")
 def clock_in(
-    note: Optional[list[str]] = typer.Argument(None, help="What you're starting on (optional)."),
+    note: Optional[list[str]] = typer.Argument(None, help="The class, then anything else about it (optional)."),
     at: Optional[str] = typer.Option(None, "--at", help="Start time if you forgot: 9:30am, 'yesterday 9pm'."),
+    course: Optional[str] = typer.Option(None, "--class", "-c", help="The class, if you'd rather name it here."),
 ):
-    """Clock in. [dim]e.g. cram in fixing the scraper[/]"""
+    """Start studying. [dim]e.g. cram in linear algebra[/] or [dim]cram in la ch 5 review[/]"""
     store, _ = _load()
     run = store.running()
     if run:
-        _fail(f"Already on the clock since {fmt_time(run.start)}. [b]cram out[/] first.")
+        _fail(f"Already studying since {fmt_time(run.start)}. [b]cram out[/] first.")
     start = parse_when(at) if at else now()
     if start > now() + timedelta(minutes=1):
-        _fail("Can't clock in in the future.")
+        _fail("Can't start in the future.")
     _check_overlap(store, start, None)
-    s = store.add(start, None, [" ".join(note)] if note else [])
+    text = " ".join(note or [])
+    if course is not None:
+        cls = _class_arg(store, course)
+    else:
+        cls, text = _split_class(store, text)
+    s = store.add(start, None, [text] if text else [], cls)
     store.save()
-    ui.console.print(ui.session_card(s, "clocked in", border=ui.T.ok))
+    ui.console.print(ui.session_card(s, "studying", border=ui.T.ok))
 
 
 @app.command("out")
 def clock_out(
-    note: Optional[list[str]] = typer.Argument(None, help="What you did (otherwise you'll be asked)."),
+    note: Optional[list[str]] = typer.Argument(None, help="What you covered (otherwise you'll be asked)."),
     at: Optional[str] = typer.Option(None, "--at", help="End time if you forgot: 5:15pm, 'today 5pm'."),
 ):
-    """Clock out and describe what you did."""
+    """Stop studying and note what you covered."""
     store, cfg = _load()
     run = store.running()
     if not run:
-        _fail("You're not clocked in.")
+        _fail("You're not studying right now.")
     end = parse_when(at, default_date=run.start.date()) if at else now()
     if at and end <= run.start and len(at.split()) == 1:
         end += timedelta(days=1)  # worked past midnight
     if end <= run.start:
         _fail(f"End time has to be after the start ({fmt_time(run.start)}).")
     if end > now() + timedelta(minutes=1):
-        _fail("Can't clock out in the future.")
+        _fail("Can't stop in the future.")
     if note:
         run.notes.append(" ".join(note))
     run.end = end
     if not note and sys.stdin.isatty():
         # show the block, ask for anything missing, then confirm it
-        ui.console.print(ui.session_card(run, "punch out", border=ui.T.accent2))
-        run.notes += _ask_notes("Did you do anything else not listed?" if run.notes else "What did you work on?")
+        ui.console.print(ui.session_card(run, "stop session", border=ui.T.accent2))
+        run.notes += _ask_notes("Did you cover anything else?" if run.notes else "What did you cover?")
         day = f"{DAY_ABBR[run.day.weekday()]} {fmt_md(run.day)}"
         if not Confirm.ask(Text(f"  Save {day} {fmt_range(run.start, run.end)} ({fmt_hm(run.minutes())})?",
                                 style=f"bold {ui.T.text}"), default=True):
-            ui.info("Not saved. You're still clocked in.")
+            ui.info("Not saved. You're still studying.")
             raise typer.Exit()
     store.save()
-    ui.console.print(ui.session_card(run, "clocked out", border=ui.T.accent))
+    ui.console.print(ui.session_card(run, "session saved", border=ui.T.accent))
     r = report.build(store, cfg, run.week)
     ui.console.print(Text("  ") + ui.totals_line(r))
 
@@ -204,9 +244,9 @@ def add(
     text: Optional[list[str]] = typer.Argument(None, help="The description. Leave it out to type several lines."),
     id: Optional[int] = typer.Option(None, "--id", hidden=True),
 ):
-    """Describe what you're doing in the current block. [dim]e.g. cram add "checked the VPN prefix list"[/]
+    """Describe what you're doing in the current session. [dim]e.g. cram add "flashcards for ch 5"[/]
 
-    Off the clock, it asks which block from today or this week to add to."""
+    When you're not studying, it asks which session from today or this week to add to."""
     store, _ = _load()
     if id:
         s = store.get(id)
@@ -219,8 +259,8 @@ def add(
     else:
         if not _tty():
             _fail("Give a description: [b]cram add \"…\"[/]")
-        ui.console.print(ui.session_card(s, "add to block", border=ui.T.accent2, notes_label="what I did"))
-        lines = _ask_notes("What else do you want to add to this block?")
+        ui.console.print(ui.session_card(s, "add to session", border=ui.T.accent2, notes_label="what I covered"))
+        lines = _ask_notes("What else do you want to add to this session?")
         if not lines:
             ui.info("Nothing added.")
             raise typer.Exit()
@@ -238,8 +278,9 @@ def edit(
     end: Optional[str] = typer.Option(None, "--end", "-e", help="New end time."),
     notes: Optional[list[str]] = typer.Option(None, "--note", "-n", help="Replace notes (repeat for several lines)."),
     add_note: Optional[list[str]] = typer.Option(None, "--add-note", "-a", help="Append a note line."),
+    course: Optional[str] = typer.Option(None, "--class", "-c", help="Change the class ('none' clears it)."),
 ):
-    """Edit a block: its date, times and what you did. Asks which block from today or this week."""
+    """Edit a session: its date, times and what you covered. Asks which session from today or this week."""
     store, _ = _load()
     if id is None:
         s = _pick_block(store, ask_first=False)
@@ -248,7 +289,8 @@ def edit(
         if not s:
             _fail(f"No session #{id}.")
 
-    interactive = not any([day, start, end, notes, add_note]) and _tty()
+    interactive = not any([day, start, end, notes, add_note]) and course is None and _tty()
+    new_class = s.course if course is None else _class_arg(store, course)
 
     def ask_times(d0: str, st0: str, en0: str | None) -> tuple[str | None, str | None, str | None]:
         ui.info("Edit in place and press enter.")
@@ -259,9 +301,15 @@ def edit(
         return d, st, en
 
     if interactive:
-        ui.console.print(ui.session_card(s, "editing", notes_label="what I did"))
-        parts = ["time", "what I did"]
-        first = parts[_choose("What do you want to edit?", ["Time", "What I did"])]
+        ui.console.print(ui.session_card(s, "editing", notes_label="what I covered"))
+        parts = ["time", "what I covered"]
+        pick = _choose("What do you want to edit?", ["Time", "What I covered", "Class"])
+        if pick == 2:
+            s.course = _pick_class(store, s.course)
+            store.save()
+            ui.console.print(ui.session_card(s, "updated", border=ui.T.ok, notes_label="what I covered"))
+            return
+        first = parts[pick]
         todo = [first]
         while todo:
             part = todo.pop()
@@ -271,12 +319,12 @@ def edit(
             else:
                 ui.info("Edit in place and press enter. Clear a line to remove it.")
                 if s.notes:
-                    ui.console.print(Text("  what I did", style=f"bold {ui.T.accent}"))
+                    ui.console.print(Text("  what I covered", style=f"bold {ui.T.accent}"))
                 notes = [n for n in (_prefilled("", old) for old in s.notes) if n]
-                notes += _ask_notes("What else do you want to add to this block?")
+                notes += _ask_notes("What else do you want to add to this session?")
             if part == first:
                 other = parts[1 - parts.index(first)]
-                if Confirm.ask(Text(f"  Edit {'the time' if other == 'time' else 'what you did'} too?",
+                if Confirm.ask(Text(f"  Edit {'the time' if other == 'time' else 'what you covered'} too?",
                                     style=f"bold {ui.T.text}"), default=False):
                     todo.append(other)
 
@@ -300,28 +348,38 @@ def edit(
             day, start, end = ask_times(d.isoformat(), fmt_time(new_start), fmt_time(new_end))
             continue
         rid = conflict.apply(store, how, new_start, new_end, new_notes, s.id)
-        ui.console.print(ui.session_card(store.get(rid), "updated", border=ui.T.ok, notes_label="what I did"))
+        store.get(rid).course = new_class
+        store.save()
+        ui.console.print(ui.session_card(store.get(rid), "updated", border=ui.T.ok, notes_label="what I covered"))
         return
 
     _check_overlap(store, new_start, new_end, exclude=s.id)
-    s.start, s.end, s.notes = new_start, new_end, new_notes
+    s.start, s.end, s.notes, s.course = new_start, new_end, new_notes, new_class
     store.save()
-    ui.console.print(ui.session_card(s, "updated", border=ui.T.ok, notes_label="what I did"))
+    ui.console.print(ui.session_card(s, "updated", border=ui.T.ok, notes_label="what I covered"))
 
 
-_FIXES = {"merge": "Merge them", "trim": "Fit this one into the gap", "shorten": "Shorten the other block",
-          "replace": "Replace the other block"}
+def _pick_class(store: Store, current: str | None) -> str | None:
+    if not store.classes:
+        _fail("You don't have any classes yet. Add one with [b]cram class add …[/].")
+    labels = [c + ("   (current)" if c == current else "") for c in store.classes] + ["No class"]
+    i = _choose("Which class?", labels)
+    return store.classes[i] if i < len(store.classes) else None
+
+
+_FIXES = {"merge": "Merge them", "trim": "Fit this one into the gap", "shorten": "Shorten the other session",
+          "replace": "Replace the other session"}
 
 
 def _resolve_overlap(store: Store, st: datetime, en: datetime, sid: int) -> str:
-    """The new times run into another block: offer ways to fix it. Returns a conflict fix or 'back'."""
+    """The new times run into another session: offer ways to fix it. Returns a conflict fix or 'back'."""
     ui.warn(f"{fmt_range(st, en)} overlaps:")
     for o in conflict.overlapping(store, st, en, sid):
         ui.console.print(Text.assemble((f"    {ui.block_label(o)}", f"bold {ui.T.warn}"),
                                        (f"  {' · '.join(o.notes)}" if o.notes else "", ui.T.muted)))
     opts = conflict.options(store, st, en, sid)
     keys = list(opts) + ["back", "cancel"]
-    labels = [f"{_FIXES[k]}  {opts[k]}" for k in opts] + ["Change the times", "Cancel (keep the block as it was)"]
+    labels = [f"{_FIXES[k]}  {opts[k]}" for k in opts] + ["Change the times", "Cancel (keep the session as it was)"]
     how = keys[_choose("How do you want to fix it?", labels)]
     if how == "cancel":
         ui.info("Nothing changed.")
@@ -350,7 +408,7 @@ def _show_dashboard(week: str | None = None) -> None:
     ui.console.print(ui.dashboard(store, report.build(store, cfg, parse_week(week)), cfg))
     run = store.running()
     if run and run.minutes() > 12 * 60:
-        ui.warn(f"You've been clocked in for {fmt_hm(run.minutes())}. Forgot to clock out? "
+        ui.warn(f"You've been studying for {fmt_hm(run.minutes())}. Forgot to stop? "
                 "[b]cram out --at 5pm[/]")
 
 
@@ -359,7 +417,7 @@ def status(
     watch: bool = typer.Option(False, "--watch", "-W", help="Live-updating dashboard (ctrl-c to quit)."),
     week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_HELP),
 ):
-    """On or off the clock, hours today, and the week."""
+    """Studying or not, hours today, and the week."""
     store, cfg = _load()
     monday = parse_week(week)
     if not watch:
@@ -380,7 +438,7 @@ def status(
 
 @app.command("v-today")
 def view_today(day: Optional[str] = typer.Argument(None, help="Another day instead: yesterday, tue, 10/14.")):
-    """View today's blocks: a timeline plus what you did in each."""
+    """View today's sessions: a timeline plus what you covered in each."""
     store, cfg = _load()
     d = parse_date(day) if day else date.today()
     blocks = store.on_day(d)
@@ -392,40 +450,41 @@ def view_today(day: Optional[str] = typer.Argument(None, help="Another day inste
     lo, hi = ui.day_range(blocks)
     total = sum(s.minutes() for s in blocks)
     foot = Text.assemble(("total ", ui.T.dim), (fmt_hm(total), f"bold {ui.T.text}"),
-                         ("   ", ""), (f"{len(blocks)} block{'s' if len(blocks) != 1 else ''}", ui.T.dim))
+                         ("   ", ""), (f"{len(blocks)} session{'s' if len(blocks) != 1 else ''}", ui.T.dim))
     ui.console.print(ui.panel(Group(ui.timeline_bar(blocks, d, width, lo, hi), ui.timeline_axis(width, lo, hi),
-                                    Text(""), ui.blocks_table(blocks), Text(""), foot), title))
+                                    Text(""), ui.class_bars(blocks), Text(""), ui.blocks_table(blocks), Text(""), foot), title))
 
 
 @app.command("v-week")
 def view_week(week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_HELP)):
-    """View a week: hours per day, every block and the totals."""
+    """View a week: hours per day, every session and the totals."""
     store, cfg = _load()
     monday = parse_week(week)
     r = report.build(store, cfg, monday)
     parts = [ui.week_bars(store, monday)]
     if r.days:
-        parts += [Text(""), ui.sessions_table(store, monday)]
+        parts += [Text(""), Text("by class", style=f"bold {ui.T.accent}"), ui.class_bars(store.in_week(monday)),
+                  Text(""), ui.sessions_table(store, monday)]
     parts += [Text(""), ui.totals_line(r)]
     ui.console.print(ui.panel(Group(*parts), f"week {fmt_md(r.monday)} – {fmt_md(r.sunday)}"))
 
 
 @app.command("v-block")
 def view_block(id: Optional[int] = typer.Option(None, "--id", hidden=True)):
-    """View the block you're clocked into, or your most recent one."""
+    """View the session you're studying in, or your most recent one."""
     store, _ = _load()
     if id:
         s = store.get(id)
         if not s:
             _fail(f"No session #{id}.")
-        title, border = "block", None
+        title, border = "session", None
     elif (s := store.running()):
-        title, border = "on the clock", ui.T.ok
+        title, border = "studying", ui.T.ok
     elif (s := store.last()):
-        title, border = "last block (off the clock currently)", None
+        title, border = "last session (not studying right now)", None
     else:
-        _fail("Nothing logged yet. [b]cram in[/] to start a block.")
-    ui.console.print(ui.session_card(s, title, border=border, notes_label="what I did"))
+        _fail("Nothing logged yet. [b]cram in[/] to start a session.")
+    ui.console.print(ui.session_card(s, title, border=border, notes_label="what I covered"))
     if not s.notes:
         ui.console.print(Text('  no descriptions yet, add one with  cram add "…"', style=ui.T.dim))
 
@@ -452,6 +511,77 @@ def weeks(n: int = typer.Option(8, "--last", "-n", help="How many weeks back."))
             Text(str(len(r.days)) if not empty else "", style=ui.T.dim),
         )
     ui.console.print(ui.panel(t, "weeks"))
+
+
+# ── classes ──────────────────────────────────────────────────────────────────
+
+class_app = typer.Typer(help="Your classes: [b]cram class add Linear Algebra[/], rm, rename, or just [b]cram class[/] to list them.",
+                        rich_markup_mode="rich", invoke_without_command=True, no_args_is_help=False)
+app.add_typer(class_app, name="class")
+
+
+@class_app.callback()
+def _class_root(ctx: typer.Context):
+    if ctx.invoked_subcommand is None:
+        _list_classes()
+
+
+@app.command("classes")
+def list_classes():
+    """List your classes with hours this week and in total."""
+    _list_classes()
+
+
+def _list_classes() -> None:
+    store, _ = _load()
+    if not store.classes and not store.sessions:
+        ui.info("No classes yet. Add one with [b]cram class add Linear Algebra[/] "
+                "(several at once: [b]cram class add Linear Algebra, Chemistry[/]).")
+        return
+    ui.console.print(ui.panel(ui.classes_table(store), "classes"))
+
+
+@class_app.command("add")
+def class_add(name: list[str] = typer.Argument(..., help="The class name. Separate several with commas.")):
+    """Add a class. [dim]e.g. cram class add Linear Algebra, Chemistry[/]"""
+    store, _ = _load()
+    added, had = [], []
+    for part in " ".join(name).split(","):
+        if part.strip():
+            (had if store.find_class(part) else added).append(store.add_class(part))
+    if not added and not had:
+        _fail("Give the class a name: [b]cram class add Linear Algebra[/]")
+    store.save()
+    for c in added:
+        ui.ok(f"Added [b]{c}[/]. Start with [b]cram in {c.lower()}[/]")
+    for c in had:
+        ui.info(f"[b]{c}[/] is already one of your classes.")
+
+
+@class_app.command("rm")
+def class_rm(name: list[str] = typer.Argument(..., help="The class to remove.")):
+    """Remove a class from your list. Past sessions keep it, so no hours are lost."""
+    store, _ = _load()
+    c = _class_arg(store, " ".join(name))
+    if c is None:
+        _fail("Which class? [b]cram class rm Chemistry[/]")
+    store.remove_class(c)
+    store.save()
+    n = sum(1 for s in store.sessions if s.course == c)
+    ui.ok(f"Removed [b]{c}[/]." + (f" Its {n} past session{'s' if n != 1 else ''} keep the class." if n else ""))
+
+
+@class_app.command("rename")
+def class_rename(old: str = typer.Argument(..., help="Current name (quote it if it has spaces)."),
+                 new: str = typer.Argument(..., help="New name (quote it if it has spaces).")):
+    """Rename a class, including on past sessions. [dim]e.g. cram class rename "Lin Alg" "Linear Algebra"[/]"""
+    store, _ = _load()
+    try:
+        name = store.rename_class(_class_arg(store, old) or old, new)
+    except ValueError as e:
+        _fail(str(e).capitalize() + ".")
+    store.save()
+    ui.ok(f"Renamed to [b]{name}[/].")
 
 
 # ── misc ─────────────────────────────────────────────────────────────────────

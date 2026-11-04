@@ -35,6 +35,7 @@ def punched_in_earlier(minutes=30, notes=("working",)):
 def test_in_then_out_from_the_prompt_bar():
     async def script(app, pilot):
         await type_(pilot, "in fixing the scraper")
+        await pilot.press("n"); await pilot.pause()         # not a class: keep it as a note
         assert Store.load().running().notes == ["fixing the scraper"]
         assert app.focused.id == "new"                      # cursor jumps to the working-on box
         await type_(pilot, "checked aws")
@@ -80,7 +81,7 @@ def test_status_line_only_says_unsaved_for_typed_but_not_added_text():
     punched_in_earlier()
     async def script(app, pilot):
         app.main.reload()
-        assert "on the clock" in app.main.status_text and "unsaved" not in app.main.status_text
+        assert "studying" in app.main.status_text and "unsaved" not in app.main.status_text
         app.main.query_one("#new").value = "half typed"
         app.main.reload()
         assert "unsaved" in app.main.status_text
@@ -107,7 +108,9 @@ def test_overlap_while_adding_a_past_block_asks_and_esc_saves_nothing():
         app.push_screen(DayScreen(datetime(2026, 10, 14).date())); await pilot.pause()
         await pilot.press("down", "enter"); await pilot.pause()        # the "+ add a block" row
         assert isinstance(app.screen, BlockEditor)
-        await type_(pilot, "10:30pm"); await type_(pilot, "10:47pm"); await type_(pilot, "test")
+        await type_(pilot, "10:30pm"); await type_(pilot, "10:47pm")
+        await pilot.press("enter"); await pilot.pause()                 # class: none
+        await type_(pilot, "test")
         assert isinstance(app.screen, ConflictScreen)
         await pilot.press("escape"); await pilot.pause()
         assert isinstance(app.screen, BlockEditor)
@@ -222,7 +225,7 @@ def test_tab_toggles_areas_and_arrows_move_in_top():
     run(body)
 
 
-def test_first_run_onboarding_is_just_a_theme():
+def test_first_run_onboarding_adds_classes_then_a_theme():
     from cram import config
     from cram.tui import OnboardingScreen
 
@@ -231,8 +234,12 @@ def test_first_run_onboarding_is_just_a_theme():
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause(); await pilot.pause()
             assert isinstance(app.screen, OnboardingScreen)
-            assert [sid for sid, _ in app.screen.STEPS] == ["welcome", "look", "tour"]
+            assert [sid for sid, _ in app.screen.STEPS] == ["welcome", "classes", "look", "tour"]
             await pilot.press("enter"); await pilot.pause()                 # welcome
+            assert app.focused.id == "ob-class"
+            await type_(pilot, "Linear Algebra")
+            await type_(pilot, "Chemistry, US History")                     # several at once
+            await pilot.press("enter"); await pilot.pause()                 # empty enter: done
             assert app.focused.id == "themes"
             await pilot.press("down", "enter"); await pilot.pause()         # theme
             await pilot.press("enter"); await pilot.pause()                 # tour
@@ -240,6 +247,7 @@ def test_first_run_onboarding_is_just_a_theme():
             assert app.focused.id == "cmd"
         cfg = config.load()
         assert cfg["ui"]["theme"] == "nord" and cfg["ui"]["onboarded"] is True
+        assert Store.load().classes == ["Linear Algebra", "Chemistry", "US History"]
 
     asyncio.run(main())
 
@@ -270,3 +278,70 @@ def test_every_theme_works_in_the_app():
             app.apply_theme(name); await pilot.pause()
             assert app.theme == TEXTUAL_THEMES[name]
     run(body)
+
+
+def with_classes(*names):
+    st = Store.load()
+    for n in names:
+        st.add_class(n)
+    st.save()
+
+
+def test_in_with_a_class_from_the_prompt_bar():
+    with_classes("Linear Algebra", "Chemistry")
+    async def script(app, pilot):
+        await type_(pilot, "in la ch 5 review")
+        run = Store.load().running()
+        assert run.course == "Linear Algebra" and run.notes == ["ch 5 review"]
+        assert app.main.query_one("#now").border_title == "Linear Algebra"
+    run(script)
+
+
+def test_in_with_a_new_class_offers_to_add_it():
+    with_classes("Chemistry")
+    async def script(app, pilot):
+        await type_(pilot, "in biology")
+        await pilot.press("y"); await pilot.pause()
+        st = Store.load()
+        assert st.classes == ["Chemistry", "biology"] and st.running().course == "biology"
+        assert st.running().notes == []
+    run(script)
+
+
+def test_in_with_an_ambiguous_short_name_starts_nothing():
+    with_classes("Chemistry", "Chem Lab")
+    async def script(app, pilot):
+        await type_(pilot, "in chem")
+        assert Store.load().sessions == []
+    run(script)
+
+
+def test_classes_screen_adds_and_removes():
+    from cram.tui import ClassesScreen
+    async def script(app, pilot):
+        await type_(pilot, "/classes")
+        assert isinstance(app.screen, ClassesScreen)
+        await type_(pilot, "Linear Algebra")
+        await type_(pilot, "Chemistry")
+        assert Store.load().classes == ["Linear Algebra", "Chemistry"]
+        app.screen.query_one("#classlist").focus(); await pilot.pause()
+        await pilot.press("down", "delete"); await pilot.pause()
+        await pilot.press("y"); await pilot.pause()
+        assert Store.load().classes == ["Linear Algebra"]
+        await pilot.press("escape"); await pilot.pause()
+        assert not isinstance(app.screen, ClassesScreen)
+    run(script)
+
+
+def test_class_set_in_the_editor_when_stopping():
+    with_classes("Linear Algebra", "Chemistry")
+    punched_in_earlier(notes=("reading",))
+    async def script(app, pilot):
+        await type_(pilot, "out")
+        assert isinstance(app.screen, BlockEditor)
+        app.screen.query_one("#course").focus(); await pilot.pause()
+        await type_(pilot, "chemistry")
+        await pilot.press("enter"); await pilot.pause()     # empty enter on the notes box saves
+        s = Store.load().sessions[0]
+        assert s.end is not None and s.course == "Chemistry"
+    run(script)

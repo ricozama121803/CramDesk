@@ -1,4 +1,4 @@
-"""Working out (and fixing) blocks whose times overlap."""
+"""Working out (and fixing) sessions whose times overlap."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -19,7 +19,7 @@ def overlapping(store: Store, st: datetime, en: datetime | None, exclude: int | 
 
 
 def free_slot(store: Store, st: datetime, en: datetime, exclude: int | None) -> tuple[datetime, datetime] | None:
-    """The longest stretch inside st..en that no other block covers."""
+    """The longest stretch inside st..en that no other session covers."""
     best, cur = None, st
     for o in overlapping(store, st, en, exclude):
         if o.start > cur and (best is None or o.start - cur > best[1] - best[0]):
@@ -39,7 +39,7 @@ def options(store: Store, st: datetime, en: datetime, exclude: int | None) -> di
     lo = min([st] + [o.start for o in others])
     running = any(o.running for o in others)
     hi = None if running else max([en] + [_end(o) for o in others])
-    opts["merge"] = f"→ {fmt_range(lo, hi)}, items combined"
+    opts["merge"] = f"→ {fmt_range(lo, hi)}, notes combined"
     slot = free_slot(store, st, en, exclude)
     if slot:
         opts["trim"] = f"→ this one {fmt_range(*slot)}"
@@ -53,12 +53,12 @@ def options(store: Store, st: datetime, en: datetime, exclude: int | None) -> di
         else:
             opts["shorten"] = "→ the others trimmed to fit"
     if not running:
-        opts["replace"] = "→ delete the other block" + ("s" if len(others) > 1 else "")
+        opts["replace"] = "→ delete the other session" + ("s" if len(others) > 1 else "")
     return opts
 
 
 def apply(store: Store, how: str, st: datetime, en: datetime, notes: list[str], sid: int | None) -> int:
-    """Fix the overlap and save this block. Returns the id of the block that holds the result."""
+    """Fix the overlap and save this session. Returns the id of the session that holds the result."""
     others = overlapping(store, st, en, sid)
     me = store.get(sid) if sid else None
 

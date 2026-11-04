@@ -235,25 +235,26 @@ def totals_line(r: Report) -> Text:
 
 
 def dashboard(store: Store, r: Report, cfg: dict, live: bool = False) -> Group:
-    """cram status: on/off the clock, today's hours, the week."""
+    """cram status: studying or not, today's hours, the week."""
     now = datetime.now()
     run = store.running()
-    head = chip("● ON THE CLOCK", T.ok) if run else chip("○ OFF THE CLOCK", T.dim)
+    head = chip("● STUDYING", T.ok) if run else chip("○ NOT STUDYING", T.dim)
 
     today_min = sum(s.minutes(now) for s in store.on_day(date.today()))
-    rows = kv(("time worked today", Text(fmt_hm(today_min), style=f"bold {T.text}")))
+    rows = kv(("studied today", Text(fmt_hm(today_min), style=f"bold {T.text}")))
     if run:
         el = run.seconds(now)
         shift = clock_str(el, with_seconds=live) if live else fmt_hm(el // 60)
-        rows.add_row(Text("this block", style=T.muted),
+        rows.add_row(Text("this session", style=T.muted),
                      Text.assemble((shift, f"bold {T.ok}"), (f"  since {fmt_time(run.start)}", T.dim)))
     parts = [head, Text(""), rows]
     if run and run.notes:
-        parts += [Text(""), Text("what I did", style=f"bold {T.accent}"), notes_text(run.notes)]
+        parts += [Text(""), Text("what I covered", style=f"bold {T.accent}"), notes_text(run.notes)]
     top = panel(Group(*parts), f"today · {now:%a %b} {now.day}", border=T.ok if run else None, padding=(0, 2))
 
     week = panel(
-        Group(week_bars(store, r.monday, now), Text(""), totals_line(r)),
+        Group(week_bars(store, r.monday, now), Text(""), class_bars(store.in_week(r.monday), now),
+              Text(""), totals_line(r)),
         f"week {fmt_md(r.monday)} – {fmt_md(r.sunday)}",
     )
     return Group(top, week)
@@ -271,7 +272,8 @@ def blocks_table(blocks: list[Session]) -> Table:
     t.add_column("day", style=T.muted, no_wrap=True)
     t.add_column("time", style=T.text, no_wrap=True)
     t.add_column("dur", style=T.accent2, justify="right", no_wrap=True)
-    t.add_column("what", style=T.text, max_width=70)
+    t.add_column("class", style=f"bold {T.accent}", no_wrap=True, max_width=22)
+    t.add_column("what", style=T.text, max_width=60)
     last_day = None
     for s in blocks:
         if last_day and s.day != last_day:
@@ -281,7 +283,62 @@ def blocks_table(blocks: list[Session]) -> Table:
         rng = Text(fmt_range(s.start, s.end))
         if s.running:
             rng.stylize(f"bold {T.ok}")
-        t.add_row(day, rng, fmt_hm(s.minutes()), notes_text(s.notes) if s.notes else Text("—", style=T.faint))
+        t.add_row(day, rng, fmt_hm(s.minutes()), s.course or Text("—", style=T.faint),
+                  notes_text(s.notes) if s.notes else Text("—", style=T.faint))
+    return t
+
+
+NO_CLASS = "no class"
+
+
+def class_minutes(sessions: list[Session], at: datetime | None = None) -> list[tuple[str | None, int]]:
+    """[(class, minutes)], most studied first; sessions without a class are grouped under None."""
+    tot: dict[str | None, int] = {}
+    for s in sessions:
+        tot[s.course] = tot.get(s.course, 0) + s.minutes(at)
+    return sorted(((c, m) for c, m in tot.items() if m), key=lambda x: (-x[1], x[0] is None, x[0] or ""))
+
+
+def class_bars(sessions: list[Session], at: datetime | None = None, width: int = 20) -> Table | Text:
+    """Hours per class with a bar each, for a day or a week."""
+    rows = class_minutes(sessions, at)
+    if not rows:
+        return Text("nothing studied yet", style=T.dim)
+    g = Table.grid(padding=(0, 1))
+    g.add_column(no_wrap=True, max_width=22)
+    g.add_column(no_wrap=True)
+    g.add_column(justify="right", no_wrap=True)
+    g.add_column(justify="right", no_wrap=True)
+    total = sum(m for _, m in rows) or 1
+    top = rows[0][1]
+    for c, m in rows:
+        g.add_row(Text(c or NO_CLASS, style=f"bold {T.text}" if c else T.dim),
+                  bar(m, top, width=width, color=T.accent if c else T.dim),
+                  Text(fmt_hm(m), style=T.text), Text(f"{round(100 * m / total)}%", style=T.dim))
+    return g
+
+
+def classes_table(store: Store) -> Table:
+    """cram classes: every class with this week's and all-time hours."""
+    from .timeutil import week_start
+    monday = week_start(date.today())
+    t = Table(box=box.SIMPLE_HEAD, header_style=f"bold {T.accent}", show_edge=False, pad_edge=False)
+    for col, j in [("class", "left"), ("this week", "right"), ("total", "right"), ("last studied", "left")]:
+        t.add_column(col, justify=j, no_wrap=True)
+    names: list[str | None] = list(store.classes)
+    names += sorted({s.course for s in store.sessions if s.course and s.course not in store.classes})
+    if any(s.course is None for s in store.sessions):
+        names.append(None)
+    for c in names:
+        mine = [s for s in store.sessions if s.course == c]
+        week = sum(s.minutes() for s in mine if s.week == monday)
+        last = max((s.day for s in mine), default=None)
+        label = Text(c or NO_CLASS, style=f"bold {T.text}" if c in store.classes else T.dim)
+        if c and c not in store.classes:
+            label.append("  (removed)", style=T.faint)
+        t.add_row(label, Text(fmt_hm(week) if week else "·", style=T.text if week else T.faint),
+                  Text(fmt_hm(sum(s.minutes() for s in mine)) if mine else "·", style=T.accent2),
+                  Text(f"{DAY_ABBR[last.weekday()]} {fmt_md(last)}" if last else "never", style=T.dim))
     return t
 
 
@@ -292,6 +349,7 @@ def block_label(s: Session) -> str:
 
 def session_card(s: Session, title: str, border: str | None = None, notes_label: str | None = None) -> Panel:
     body = kv(
+        ("class", Text(s.course, style=f"bold {T.accent}") if s.course else Text("none", style=T.dim)),
         ("day", f"{DAY_ABBR[s.day.weekday()]} {fmt_md(s.day)}"),
         ("time", fmt_range(s.start, s.end)),
         ("duration", fmt_hm(s.minutes())),
@@ -362,7 +420,7 @@ def _hour_label(h: int) -> str:
 
 
 def day_range(blocks: list[Session], at: datetime | None = None) -> tuple[int, int]:
-    """Hours to show: at least 8a-6p, stretched to fit every block (blocks past midnight stop at 12a)."""
+    """Hours to show: at least 8a-6p, stretched to fit every session (sessions past midnight stop at 12a)."""
     import math
     lo, hi = 8, 18
     for s in blocks:
@@ -375,7 +433,7 @@ def day_range(blocks: list[Session], at: datetime | None = None) -> tuple[int, i
 
 def timeline_bar(blocks: list[Session], day: date, width: int, lo: int, hi: int,
                  at: datetime | None = None) -> Text:
-    """One row: each block filled in on an hour scale, gaps as a thin line."""
+    """One row: each session filled in on an hour scale, gaps as a thin line."""
     from datetime import datetime as dt, time as tm, timedelta
     width = max(4, width)
     at = at or dt.now()

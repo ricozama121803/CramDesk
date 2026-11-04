@@ -62,7 +62,7 @@ def test_undo_redo_walk_back_and_forth():
 
 def test_undo_everything_then_nothing_left():
     make(("2026-10-14 09:00", "2026-10-14 10:00", []))
-    assert history.undo().startswith("add block")
+    assert history.undo().startswith("add session")
     assert Store.load().sessions == []           # back to before the first save
     assert history.undo() is None                # pressing undo again is harmless
 
@@ -80,14 +80,14 @@ def test_new_change_after_undo_clears_redo():
 
 def test_undo_labels_describe_the_change():
     st = make(("2026-10-14 09:00", None, []))
-    assert history.peek().startswith("punch in")
+    assert history.peek().startswith("start studying")
     st.sessions[0].end = dt("2026-10-14 10:00")
     st.save()
-    assert history.peek().startswith("punch out")
+    assert history.peek().startswith("stop")
     st = Store.load()
     st.remove(st.sessions[0].id)
     st.save()
-    assert history.peek().startswith("delete block")
+    assert history.peek().startswith("delete session")
 
 
 def test_undo_history_is_capped(monkeypatch):
