@@ -67,7 +67,7 @@ cram todo clear                     # delete this week's checked-off ones
 ```
 
 Anything you didn't finish shows up under "still open from earlier weeks", so nothing gets lost.
-In the app, type `/todo`. `enter` adds, `tab` moves to the list, `enter` or `space` checks off, `delete` removes.
+In the app, open to-dos show in the **to-do** panel under your session (press `down` from the notes box, then `enter` to open the full list), or type `/todo`. `enter` adds, `tab` moves to the list, `enter` or `space` checks off, `delete` removes.
 
 ## From the shell
 

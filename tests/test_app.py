@@ -377,9 +377,10 @@ def test_todo_screen_add_check_off_and_remove():
         assert [t.text for t in Store.load().todos] == ["finish problem set 4", "email the TA"]
         await pilot.press("escape"); await pilot.pause()
         assert not isinstance(app.screen, TodoScreen)
-        w = app.main.query_one("#week")
-        shown = "".join(seg.text for line in w.render_lines(w.region.reset_offset) for seg in line)
-        assert "to-dos 0/2 done" in shown and "+1 open from earlier" not in shown
+        notes = app.main.query_one("#notes")
+        assert notes.border_subtitle == "to-dos 0/2 done"
+        shown = "".join(seg.text for line in notes.render_lines(notes.region.reset_offset) for seg in line)
+        assert "finish problem set 4" in shown and "email the TA" in shown
     run(script)
 
 
@@ -395,4 +396,26 @@ def test_prompt_bar_adds_todos_in_either_order():
         app.main.query_one("#cmd").focus()
         await type_(pilot, "add class Statics")
         assert Store.load().classes == ["Statics"]
+    run(script)
+
+
+def test_notes_panel_shows_open_todos_and_opens_the_list():
+    from cram.tui import TodoScreen
+    from datetime import date
+    from cram.timeutil import week_start
+    st = Store.load()
+    for text in ("read ch 7", "problem set 4"):
+        st.add_todo(text, week_start(date.today()))
+    st.get_todo(2).done = True
+    st.save()
+    async def script(app, pilot):
+        await pilot.pause()
+        notes = app.main.query_one("#notes")
+        shown = "".join(seg.text for line in notes.render_lines(notes.region.reset_offset) for seg in line)
+        assert "read ch 7" in shown and "problem set 4" not in shown and "1 done" in shown
+        app.main.query_one("#new").focus(); await pilot.pause()
+        await pilot.press("down"); await pilot.pause()       # down from the notes box below the session
+        assert app.focused.id == "notes"
+        await pilot.press("enter"); await pilot.pause()
+        assert isinstance(app.screen, TodoScreen)
     run(script)

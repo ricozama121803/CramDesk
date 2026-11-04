@@ -59,9 +59,9 @@ SHORTCUTS = [
     ("  /config", "color theme"),
     ("", ""),
     ("tab", "switch between the prompt bar and the top section"),
-    ("arrows (top section)", "move between notes, today and week"),
+    ("arrows (top section)", "move between your session notes, today, week and to-do"),
     ("  in the note list", "f2 rename · delete remove · esc back"),
-    ("enter (on a panel)", "open today / the week"),
+    ("enter (on a panel)", "open today / the week / the to-do list"),
     ("ctrl+s", "start / stop studying"),
     ("ctrl+z · ctrl+y", "undo · redo"),
     ("ctrl+n", "jump to the notes box"),
@@ -95,6 +95,37 @@ def _today_view(store: Store) -> Table:
     if blocks:
         g.add_row(Text("total", style=ui.T.dim), Text(fmt_hm(total), style=f"bold {ui.T.text}"), "")
     return g
+
+
+def _notes_view(store: Store, monday: date, rows: int = 8):
+    """The side panel version of the to-do list: open ones first, then a count of the rest."""
+    mine, older = store.todos_for(monday)
+    open_ = [t for t in mine if not t.done] + older
+    done = [t for t in mine if t.done]
+    if not open_ and not done:
+        return Text.assemble(("nothing yet · type ", ui.T.dim), ("todo read ch 7", f"bold {ui.T.accent}"),
+                             (" below", ui.T.dim))
+    lines = []
+    for t in open_[:rows]:
+        line = Text(no_wrap=True, overflow="ellipsis")
+        line.append("☐ ", style=ui.T.warn if t in older else ui.T.accent)
+        line.append(t.text, style=ui.T.text)
+        if t.course:
+            line.append(f" · {t.course}", style=ui.T.accent2)
+        if t in older:
+            line.append(f" · from {fmt_md(t.week)}", style=ui.T.dim)
+        lines.append(line)
+    more = len(open_) - len(lines)
+    tail = []
+    if more > 0:
+        tail.append(f"+{more} more")
+    if done:
+        tail.append(f"{len(done)} done")
+    if not open_:
+        lines = [Text("all done for this week ✓", style=f"bold {ui.T.ok}")]
+    if tail:
+        lines.append(Text(" · ".join(tail), style=ui.T.dim))
+    return Group(*lines)
 
 
 # ── dialogs ──────────────────────────────────────────────────────────────────
@@ -719,8 +750,14 @@ class ItemInput(Input):
 
     BINDINGS = [
         Binding("up", "to_list", show=False),
+        Binding("down", "down", show=False),
         Binding("right", "right", show=False),
     ]
+
+    def action_down(self) -> None:
+        nav = getattr(self.screen, "nav", None)
+        if nav:
+            nav(self.id, "down")
 
     def action_right(self) -> None:
         nav = getattr(self.screen, "nav", None)
@@ -1491,6 +1528,9 @@ class MainScreen(Screen):
         ("today", "left"): "new",
         ("week", "up"): "today",
         ("week", "left"): "new",
+        ("new", "down"): "notes",
+        ("notes", "up"): "new",
+        ("notes", "right"): "week",
     }
 
     def compose(self) -> ComposeResult:
@@ -1498,11 +1538,13 @@ class MainScreen(Screen):
             yield Static(id="banner")
             yield Static(id="mascot")
         with Horizontal(id="main"):
-            with Vertical(id="now"):
-                yield Static(id="clock")
-                yield Label("notes", id="items-label", classes="section")
-                yield ItemList(id="items")
-                yield ItemInput(id="new")
+            with Vertical(id="left"):
+                with Vertical(id="now"):
+                    yield Static(id="clock")
+                    yield Label("this session", id="items-label", classes="section")
+                    yield ItemList(id="items")
+                    yield ItemInput(id="new")
+                yield FocusPanel(id="notes")
             with Vertical(id="side"):
                 yield FocusPanel(id="today")
                 yield FocusPanel(id="week")
@@ -1526,6 +1568,7 @@ class MainScreen(Screen):
         self.set_interval(0.12, self._mascot_tick)
         self.query_one("#slash", OptionList).can_focus = False
         self.query_one("#today").border_title = "today"
+        self.query_one("#notes").border_title = "to-do · notes to self"
         self.reload()
         self.set_interval(1, self._tick)
         self.query_one("#cmd", Input).focus()
@@ -1678,8 +1721,11 @@ class MainScreen(Screen):
         week.set_class(run is not None, "unsaved")
         bar_w = max(4, min(26, (week.content_size.width or 56) - 30))
         week.update(Group(ui.week_bars(store, r.monday, at, width=bar_w), Text(""),
-                          ui.class_bars(store.in_week(r.monday), at, width=max(4, bar_w - 6)), Text(""), ui.totals_line(r),
-                          ui.todo_summary(store, r.monday)))
+                          ui.class_bars(store.in_week(r.monday), at, width=max(4, bar_w - 6)), Text(""), ui.totals_line(r)))
+        notes_panel = self.query_one("#notes", FocusPanel)
+        notes_panel.update(_notes_view(store, r.monday, rows=6 if self.size.height >= 36 else 3))
+        summary = ui.todo_summary(store, r.monday).plain
+        notes_panel.border_subtitle = "enter to open" if notes_panel.has_focus else summary
         self._status(run, r)
 
     def _status(self, run: Session | None, r: report.Report) -> None:
@@ -1747,6 +1793,8 @@ class MainScreen(Screen):
     def _open_panel(self, ev: FocusPanel.Opened) -> None:
         if ev.panel_id == "today":
             self.app.push_screen(DayScreen(date.today()))
+        elif ev.panel_id == "notes":
+            self.action_todo()
         else:
             self.action_log()
 
@@ -2076,8 +2124,9 @@ class CramApp(App):
     #banner { width: auto; height: auto; padding: 3 2 0 2; }
     #mascot { width: 50; height: auto; padding: 1 0 0 3; }
     #main { height: 1fr; padding: 0 1; }
+    #left { width: 3fr; }
     #now {
-        width: 3fr; border: round $foreground 25%; border-title-color: $accent;
+        height: 1fr; border: round $foreground 25%; border-title-color: $accent;
         border-title-style: bold; padding: 1 2 0 2;
     }
     #now.running { border: round $success 70%; border-title-color: $success; }
@@ -2093,7 +2142,8 @@ class CramApp(App):
         border-title-style: bold; border-subtitle-color: $text-muted; padding: 1 2;
     }
     FocusPanel:focus { border: round $accent; background: $boost; }
-    #week { height: 1fr; }
+    #week { height: auto; }
+    #notes { height: auto; max-height: 12; margin-top: 0; }
     #week.unsaved { border-subtitle-color: $success; border-subtitle-style: bold; }
 
     #slash {
