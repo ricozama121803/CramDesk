@@ -322,7 +322,8 @@ def test_todo_add_list_done_and_carry_over():
     assert "read ch 7" in r.output and "still open from earlier weeks" in r.output
     assert "review notes" in r.output and "old finished thing" not in r.output   # done ones stay in their week
     assert cram("todo", "done", "1").exit_code == 0 and Store.load().get_todo(1).done
-    assert cram("todo", "undo", "1").exit_code == 0 and not Store.load().get_todo(1).done
+    assert cram("todo", "uncheck", "1").exit_code == 0 and not Store.load().get_todo(1).done
+    cram("todo", "done", "1"); assert cram("todo", "undo", "1").exit_code == 0     # old name still works
     assert cram("todo", "done", "42").exit_code == 1
     assert cram("todo", "rm", "2").exit_code == 0 and Store.load().get_todo(2) is None
     r = cram("todo", "clear", "-w", "last")
@@ -360,7 +361,7 @@ def test_tab_completes_todo_numbers_weeks_and_days():
     cram("todo", "add", "problem set")
     cram("todo", "done", "2")
     assert complete("cram todo done ") == ["1"]          # only the open ones
-    assert complete("cram todo undo ") == ["2"]          # only the checked-off ones
+    assert complete("cram todo uncheck ") == ["2"]       # only the checked-off ones
     assert complete("cram v-week -w ") == ["this", "last", "next", "-2"]
     assert complete("cram v-today ye") == ["yesterday"]
 
@@ -399,3 +400,13 @@ def test_quoted_note_starting_with_todo_is_just_a_note():
     cram("in", "--at", "10/14/26 9am")
     assert cram("add", "todo: ask about the quiz").exit_code == 0
     assert Store.load().running().notes == ["todo: ask about the quiz"]
+
+
+def test_list_and_remove_aliases():
+    cram("class", "add", "Chemistry, Statics")
+    cram("todo", "add", "read ch 7")
+    assert "Chemistry" in cram("class", "list").output and "Chemistry" in cram("class", "ls").output
+    assert "read ch 7" in cram("todo", "list").output and "read ch 7" in cram("todo", "ls").output
+    assert cram("class", "remove", "statics").exit_code == 0 and Store.load().classes == ["Chemistry"]
+    assert cram("todo", "delete", "1").exit_code == 0 and Store.load().todos == []
+    assert set(complete("cram todo ")) == {"add", "list", "done", "uncheck", "rm", "clear"}   # aliases stay hidden

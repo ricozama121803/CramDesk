@@ -61,7 +61,7 @@ cram todo add finish problem set 4
 cram todo add chem read ch 7        # starts with a class: tagged Chemistry
 cram todo add -w next study for midterm
 cram todo                           # this week's list (numbered)
-cram todo done 2                    # check it off (cram todo undo 2 un-checks it)
+cram todo done 2                    # check it off (cram todo uncheck 2 un-checks it)
 cram todo rm 3
 cram todo clear                     # delete this week's checked-off ones
 ```

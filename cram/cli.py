@@ -656,6 +656,13 @@ def _list_classes() -> None:
     ui.console.print(ui.panel(ui.classes_table(store), "classes"))
 
 
+@class_app.command("list")
+@class_app.command("ls", hidden=True)
+def class_list():
+    """List your classes (same as plain [b]cram class[/])."""
+    _list_classes()
+
+
 @class_app.command("add")
 def class_add(name: list[str] = typer.Argument(..., help="The class name. Separate several with commas.")):
     """Add a class. [dim]e.g. cram class add Linear Algebra, Chemistry[/]"""
@@ -674,6 +681,8 @@ def class_add(name: list[str] = typer.Argument(..., help="The class name. Separa
 
 
 @class_app.command("rm")
+@class_app.command("remove", hidden=True)
+@class_app.command("delete", hidden=True)
 def class_rm(name: list[str] = typer.Argument(..., help="The class to remove.",
                                                    autocompletion=_class_word_completer("name"))):
     """Remove a class from your list. Past sessions keep it, so no hours are lost."""
@@ -703,7 +712,7 @@ def class_rename(old: str = typer.Argument(..., help="Current name (quote it if 
 # ── to-dos ───────────────────────────────────────────────────────────────────
 
 todo_app = typer.Typer(help="Notes to self for the week (no reminders). [b]cram todo add finish problem set 4[/], "
-                            "done, undo, rm, or just [b]cram todo[/] to see the list.",
+                            "done, uncheck, rm, or just [b]cram todo[/] to see the list.",
                        rich_markup_mode="rich", invoke_without_command=True, no_args_is_help=False)
 app.add_typer(todo_app, name="todo")
 
@@ -728,6 +737,13 @@ def _todo_ids(store: Store, ids: list[int]):
             _fail(f"No to-do #{i}. [b]cram todo[/] shows the numbers.")
         found.append(t)
     return found
+
+
+@todo_app.command("list")
+@todo_app.command("ls", hidden=True)
+def todo_list(week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_HELP, autocompletion=_complete_week)):
+    """List the week's to-dos (same as plain [b]cram todo[/])."""
+    _show_todos(parse_week(week))
 
 
 @todo_app.command("add")
@@ -756,10 +772,11 @@ def todo_done(ids: list[int] = typer.Argument(..., help="The to-do number(s), fr
     store.save()
 
 
-@todo_app.command("undo")
-def todo_undo(ids: list[int] = typer.Argument(..., help="The to-do number(s) to un-check.",
+@todo_app.command("uncheck")
+@todo_app.command("undo", hidden=True)          # the old name
+def todo_uncheck(ids: list[int] = typer.Argument(..., help="The to-do number(s) to un-check.",
                                                autocompletion=_todo_completer("done"))):
-    """Un-check to-dos you checked off by mistake."""
+    """Un-check to-dos you checked off by mistake. [dim](cram undo is different: it undoes your last change)[/]"""
     store, _ = _load()
     for t in _todo_ids(store, ids):
         t.done = False
@@ -768,6 +785,8 @@ def todo_undo(ids: list[int] = typer.Argument(..., help="The to-do number(s) to 
 
 
 @todo_app.command("rm")
+@todo_app.command("remove", hidden=True)
+@todo_app.command("delete", hidden=True)
 def todo_rm(ids: list[int] = typer.Argument(..., help="The to-do number(s) to delete.",
                                              autocompletion=_todo_completer("all"))):
     """Delete to-dos."""

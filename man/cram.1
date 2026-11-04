@@ -146,10 +146,10 @@ Studying or not, hours studied today, and the week; \fB\-W\fR keeps it live.
 Manage your classes. On its own (or as \fBcram classes\fR) it lists them with hours this week, in total,
 and when you last studied each. Removing a class keeps it on past sessions, so no hours are lost.
 .TP
-.BR todo " [\fBadd\fR \fItext\fR | \fBdone\fR \fIn\fR... | \fBundo\fR \fIn\fR... | \fBrm\fR \fIn\fR... | \fBclear\fR] [\fB\-w\fR \fIweek\fR]"
+.BR todo " [\fBadd\fR \fItext\fR | \fBdone\fR \fIn\fR... | \fBuncheck\fR \fIn\fR... | \fBrm\fR \fIn\fR... | \fBclear\fR] [\fB\-w\fR \fIweek\fR]"
 Notes to self for a week, with no reminders. On its own it lists the week's to-dos with their numbers,
 plus any left unfinished in earlier weeks. A to-do that starts with a class (\fBchem read ch 7\fR) is tagged
-with it. \fBdone\fR checks one off, \fBundo\fR un-checks it, \fBrm\fR deletes it, and \fBclear\fR deletes
+with it. \fBdone\fR checks one off, \fBuncheck\fR un-checks it, \fBrm\fR deletes it, and \fBclear\fR deletes
 the week's checked-off ones.
 .TP
 .BR weeks " [\fB\-n\fR \fIcount\fR]"
@@ -166,7 +166,7 @@ Switch to the next color theme.
 .SH TAB COMPLETION
 Run \fBcram \-\-install\-completion\fR once (bash, zsh or fish) and open a new terminal.
 Tab then completes commands, class names one word at a time, \fB\-c\fR class values,
-to-do numbers for \fBtodo done\fR, \fBundo\fR and \fBrm\fR, weeks for \fB\-w\fR, and days.
+to-do numbers for \fBtodo done\fR, \fBuncheck\fR and \fBrm\fR, weeks for \fB\-w\fR, and days.
 .SH CONFIGURATION
 \fI~/.config/cram/config.toml\fR is created on first run. Sections:
 .TP
