@@ -2,17 +2,17 @@
 import asyncio
 from datetime import datetime, timedelta
 
-from crm.store import Store
-from crm.timeutil import now
-from crm.tui import BlockEditor, ConflictScreen, DayScreen, CrmApp, QuitScreen
+from cram.store import Store
+from cram.timeutil import now
+from cram.tui import BlockEditor, ConflictScreen, DayScreen, CramApp, QuitScreen
 
 
 def run(script, size=(120, 40)):
     """Run an async test body against a fresh app."""
     async def main():
-        from crm import config
+        from cram import config
         config.set_value("ui", "onboarded", True)   # skip first-run setup (tested on its own)
-        app = CrmApp()
+        app = CramApp()
         async with app.run_test(size=size) as pilot:
             await pilot.pause()
             await script(app, pilot)
@@ -223,11 +223,11 @@ def test_tab_toggles_areas_and_arrows_move_in_top():
 
 
 def test_first_run_onboarding_saves_as_you_go():
-    from crm import config
-    from crm.tui import OnboardingScreen
+    from cram import config
+    from cram.tui import OnboardingScreen
 
     async def main():
-        app = CrmApp()                                     # fresh home: no config yet
+        app = CramApp()                                     # fresh home: no config yet
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause(); await pilot.pause()
             assert isinstance(app.screen, OnboardingScreen)
@@ -257,12 +257,12 @@ def test_first_run_onboarding_saves_as_you_go():
 
 
 def test_onboarding_can_be_skipped_and_only_shows_once():
-    from crm import config
-    from crm.tui import OnboardingScreen
+    from cram import config
+    from cram.tui import OnboardingScreen
 
     async def main():
         for expect in (True, False):
-            app = CrmApp()
+            app = CramApp()
             async with app.run_test(size=(120, 40)) as pilot:
                 await pilot.pause(); await pilot.pause()
                 assert isinstance(app.screen, OnboardingScreen) is expect
@@ -273,8 +273,8 @@ def test_onboarding_can_be_skipped_and_only_shows_once():
 
 
 def test_every_theme_works_in_the_app():
-    from crm import ui
-    from crm.tui import TEXTUAL_THEMES
+    from cram import ui
+    from cram.tui import TEXTUAL_THEMES
 
     async def body(app, pilot):
         for name in ui.THEMES:

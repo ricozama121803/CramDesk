@@ -1,4 +1,4 @@
-"""Dewey, the crm mascot: a dolphin who swims along and leaps over floating books while
+"""Dewey, the cram mascot: a dolphin who swims along and leaps over floating books while
 you study, and naps at the surface when you're not. Drawn in shading characters."""
 from __future__ import annotations
 

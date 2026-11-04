@@ -3,9 +3,9 @@ import json
 
 import pytest
 
-from crm import history
-from crm.paths import data_file
-from crm.store import DataError, Store
+from cram import history
+from cram.paths import data_file
+from cram.store import DataError, Store
 from tests.conftest import MON, dt
 
 

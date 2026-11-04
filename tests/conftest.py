@@ -6,8 +6,8 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def home(tmp_path, monkeypatch):
-    """Every test gets its own empty crm home (config, data, cache)."""
-    monkeypatch.setenv("CRM_HOME", str(tmp_path))
+    """Every test gets its own empty cram home (config, data, cache)."""
+    monkeypatch.setenv("CRAM_HOME", str(tmp_path))
     monkeypatch.setenv("COLUMNS", "120")
     yield tmp_path
 

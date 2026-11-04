@@ -247,7 +247,7 @@ def totals_line(r: Report) -> Text:
 
 
 def dashboard(store: Store, r: Report, cfg: dict, live: bool = False) -> Group:
-    """crm status: on/off the clock, today's hours, the week."""
+    """cram status: on/off the clock, today's hours, the week."""
     now = datetime.now()
     run = store.running()
     head = chip("● ON THE CLOCK", T.ok) if run else chip("○ OFF THE CLOCK", T.dim)

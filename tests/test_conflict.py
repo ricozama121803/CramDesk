@@ -1,6 +1,6 @@
 """Blocks whose times overlap: which fixes are offered and what they do."""
-from crm import conflict
-from crm.store import Store
+from cram import conflict
+from cram.store import Store
 from tests.conftest import dt
 
 

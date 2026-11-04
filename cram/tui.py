@@ -1,4 +1,4 @@
-"""Full-screen, keyboard-driven crm (what you get from plain `crm`)."""
+"""Full-screen, keyboard-driven cram (what you get from plain `cram`)."""
 from __future__ import annotations
 
 import json
@@ -1019,7 +1019,7 @@ class ConfigScreen(ModalScreen[bool]):
                 for name in ui.THEMES
             ], id="themes")
             yield Label("export folder", classes="field")
-            yield Input(self.cfg["export"]["dir"], id="folder", placeholder="~/Documents/crm")
+            yield Input(self.cfg["export"]["dir"], id="folder", placeholder="~/Documents/cram")
             yield Label("file names  (example for this week)", classes="field")
             yield OptionList(*self._naming_options(), id="naming")
             yield Static(id="error")
@@ -1075,7 +1075,7 @@ class ConfigScreen(ModalScreen[bool]):
             return
         ol = self.query_one("#themes", OptionList)
         theme = ol.get_option_at_index(ol.highlighted).id
-        folder = self.query_one("#folder", Input).value.strip() or "~/Documents/crm"
+        folder = self.query_one("#folder", Input).value.strip() or "~/Documents/cram"
         try:
             Path(folder).expanduser().mkdir(parents=True, exist_ok=True)
         except OSError as e:
@@ -1143,12 +1143,12 @@ class OnboardingScreen(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog", classes="onboard") as v:
-            v.border_title = "set up crm"
+            v.border_title = "set up cram"
             with Vertical(id="ob-welcome", classes="ob-step"):
                 yield Static(ui.banner(), id="ob-banner")
                 yield ObPage(Text.assemble(
                     ("Welcome! ", f"bold {ui.T.accent}"),
-                    ("crm is a time clock for your terminal. Punch in, jot down what you're working on, "
+                    ("cram is a time clock for your terminal. Punch in, jot down what you're working on, "
                      "punch out, and every week turns into a work log + invoice PDF.\n\n", ui.T.text),
                     ("Let's fill in what goes on that invoice. It takes about a minute, "
                      "and you can change all of it later with ", ui.T.muted), ("/config", f"bold {ui.T.text}"),
@@ -1202,7 +1202,7 @@ class OnboardingScreen(ModalScreen[bool]):
         sid, title, fields = self.STEPS[self.step]
         for i, (other, _t, _f) in enumerate(self.STEPS):
             self.query_one(f"#ob-{other}").display = i == self.step
-        self.query_one("#dialog").border_title = f"set up crm · {title}"
+        self.query_one("#dialog").border_title = f"set up cram · {title}"
         self.query_one("#error", Static).update("")
         dots = Text()
         for i in range(len(self.STEPS)):
@@ -1210,7 +1210,7 @@ class OnboardingScreen(ModalScreen[bool]):
         self.query_one("#ob-steps", Static).update(dots)
         last = self.step == len(self.STEPS) - 1
         self.query_one("#hint", Static).update(Text.assemble(
-            ("enter", "bold"), " start using crm" if last else (" let's go" if self.step == 0 else " next"),
+            ("enter", "bold"), " start using cram" if last else (" let's go" if self.step == 0 else " next"),
             *([] if last else [" · ", ("esc", "bold"), " skip setup"]), style=ui.T.muted))
         if sid == "tour":  # built now so it picks up the theme you just chose
             self.query_one("#ob-tour ObPage", Static).update(self._tour())
@@ -1288,7 +1288,7 @@ class OnboardingScreen(ModalScreen[bool]):
 
 
 class RecoverScreen(ModalScreen[str]):
-    """Shown when crm died while you were on the clock."""
+    """Shown when cram died while you were on the clock."""
 
     BINDINGS = [
         Binding("k,escape", "pick('keep')", "still working"),
@@ -1302,12 +1302,12 @@ class RecoverScreen(ModalScreen[str]):
     def compose(self) -> ComposeResult:
         gap = datetime.now() - self.last_seen
         with Vertical(id="confirm") as v:
-            v.border_title = "crm closed unexpectedly"
+            v.border_title = "cram closed unexpectedly"
             yield Static(Text.assemble(
                 ("Nothing was lost. ", f"bold {ui.T.ok}"),
                 (f"You're still clocked in since {fmt_time(self.run.start)}", ui.T.text),
                 (f" ({DAY_ABBR[self.run.day.weekday()]} {fmt_md(self.run.day)}).\n", ui.T.text),
-                (f"crm last saw you at {fmt_time(self.last_seen)}, {fmt_hm(int(gap.total_seconds() // 60))} ago.", ui.T.muted),
+                (f"cram last saw you at {fmt_time(self.last_seen)}, {fmt_hm(int(gap.total_seconds() // 60))} ago.", ui.T.muted),
             ))
             yield Static("")
             yield Static(Text.assemble(("k", f"bold {ui.T.accent}"), "  keep the clock running (I'm still working)\n",
@@ -1335,22 +1335,22 @@ class QuitScreen(ModalScreen[str]):
     def compose(self) -> ComposeResult:
         with Vertical(id="confirm") as v:
             if self.run:
-                v.border_title = "quit crm?"
+                v.border_title = "quit cram?"
                 yield Static(Text.assemble(
                     ("You're on the clock", f"bold {ui.T.ok}"),
                     (f" since {fmt_time(self.run.start)} ({fmt_hm(self.run.minutes())}).\n", ui.T.text),
-                    ("Punch out, or stay clocked in while crm is closed?", ui.T.text),
+                    ("Punch out, or stay clocked in while cram is closed?", ui.T.text),
                 ))
                 opts = [("out", "o", "punch out", "save the block, then quit"),
                         ("stay", "k", "stay clocked in", "the clock keeps running"),
                         ("discard", "d", "don't save", "throw away this block" + (" and typed item" if self.draft else "")),
-                        ("cancel", "esc", "cancel", "back to crm")]
+                        ("cancel", "esc", "cancel", "back to cram")]
             else:
-                v.border_title = "quit crm?"
+                v.border_title = "quit cram?"
                 yield Static(Text("Are you sure? Everything will be saved.", style=f"bold {ui.T.text}"))
                 opts = [("save", "s", "save and quit", "everything is kept"),
                         ("discard", "d", "don't save", "throw away the typed item" if self.draft else "quit"),
-                        ("cancel", "esc", "cancel", "back to crm")]
+                        ("cancel", "esc", "cancel", "back to cram")]
             if self.draft:
                 where = "added to your block" if self.run else "kept for next time"
                 yield Static(Text(f"Your typed item “{self.draft}” will be {where} unless you don't save.",
@@ -1481,7 +1481,7 @@ class MainScreen(Screen):
                     self._punch_out(end=last.replace(second=0, microsecond=0))
             self.app.push_screen(RecoverScreen(run, last), picked)
         else:
-            self.app.notify("crm closed unexpectedly last time. Nothing was lost.", title="recovered")
+            self.app.notify("cram closed unexpectedly last time. Nothing was lost.", title="recovered")
 
     def _mascot_tick(self) -> None:
         """Asleep off the clock; the bell wakes him when you punch in; then he fights."""
@@ -1546,7 +1546,7 @@ class MainScreen(Screen):
                 clock = ui.gradient(hhmm, stops=[ui.T.dim, ui.T.muted])
             label = Text("time worked today", style=ui.T.muted)
             meta = Text("")
-            nowbox.border_title = "crm"
+            nowbox.border_title = "cram"
             new.placeholder = "punch in first: type in below"
             notes = ()
         if side_hidden:
@@ -1908,9 +1908,9 @@ class MainScreen(Screen):
 
 # ── command palette ──────────────────────────────────────────────────────────
 
-class CrmCommands(Provider):
+class CramCommands(Provider):
     def _commands(self):
-        app: CrmApp = self.app  # type: ignore[assignment]
+        app: CramApp = self.app  # type: ignore[assignment]
         main = app.main
         return [
             ("Punch in / out", "ctrl+s · or type in / out", lambda: main.action_punch_out() if main.running else main.action_punch_in()),
@@ -1949,15 +1949,15 @@ class CrmCommands(Provider):
 
 # ── app ──────────────────────────────────────────────────────────────────────
 
-class CrmApp(App):
-    TITLE = "crm"
+class CramApp(App):
+    TITLE = "cram"
     BINDINGS = [
         Binding("ctrl+z", "undo", "undo", show=False),
         Binding("ctrl+y,ctrl+shift+z", "redo", "redo", show=False),
         Binding("ctrl+q", "quit", "quit", priority=True),
         Binding("ctrl+p", "command_palette", "commands", priority=True, show=False),
     ]
-    COMMANDS = {CrmCommands}
+    COMMANDS = {CramCommands}
     COMMAND_PALETTE_BINDING = "ctrl+p"
     CSS = """
     Screen { background: $background; }
@@ -2155,16 +2155,16 @@ class CrmApp(App):
         self.exit()
 
     def run_cli(self, *args: str, wait: bool = True) -> None:
-        """Drop back to the normal terminal to run a `crm <cmd>` flow, then come back."""
+        """Drop back to the normal terminal to run a `cram <cmd>` flow, then come back."""
         with self.suspend():
-            subprocess.run([sys.executable, "-m", "crm", *args])
+            subprocess.run([sys.executable, "-m", "cram", *args])
             if wait:
                 try:
-                    input("\n  ↵  back to crm ")
+                    input("\n  ↵  back to cram ")
                 except (EOFError, KeyboardInterrupt):
                     pass
         self.reload_config()
 
 
 def run_tui() -> None:
-    CrmApp().run()
+    CramApp().run()

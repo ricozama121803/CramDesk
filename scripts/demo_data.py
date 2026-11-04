@@ -1,6 +1,6 @@
 """Made-up demo data (a contractor billing a fictional client) for screenshots and the demo video.
 
-Import this only after CRM_HOME points at a throwaway folder.
+Import this only after CRAM_HOME points at a throwaway folder.
 """
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from datetime import datetime
 
 
 def seed_config() -> None:
-    from crm import config
+    from cram import config
 
     config.load()
     config.set_value("ui", "onboarded", True)
@@ -21,7 +21,7 @@ def seed_config() -> None:
 
 def seed_log(running: bool = True) -> None:
     """Three weeks of blocks ending Thursday 2026-10-29; `running` leaves one open since 13:48."""
-    from crm.store import Store
+    from cram.store import Store
 
     st = Store.load()
     d = lambda s: datetime.fromisoformat(s)  # noqa: E731
@@ -56,6 +56,6 @@ def seed_log(running: bool = True) -> None:
         st.weeks[monday] = {
             "approved_at": "2026-10-20T09:00:00", "total_minutes": billed, "billed_minutes": billed, "rate": 25.0,
             "invoice_number": number, "summary": summary, "issued": "2026-10-21", "due": "2026-11-10",
-            "exports": [{"path": "~/Documents/crm/x.pdf", "at": "2026-10-21T09:00:00"}] if exported else [],
+            "exports": [{"path": "~/Documents/cram/x.pdf", "at": "2026-10-21T09:00:00"}] if exported else [],
         }
     st.save()

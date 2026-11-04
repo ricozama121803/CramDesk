@@ -6,7 +6,7 @@ import tomllib
 from .paths import config_file
 
 DEFAULT_TOML = '''\
-# crm config. Edit freely:  crm config --edit
+# cram config. Edit freely:  cram config --edit
 
 [you]
 name = "Your Name"
@@ -33,7 +33,7 @@ footer = [
 ]
 
 [export]
-dir = "~/Documents/crm"
+dir = "~/Documents/cram"
 filename = "logsweek{start}-{end}.pdf"  # pick a style in /config, or use: {start} {end} (10_12)
                                         # {start_iso} {end_iso} (2026-10-12) {number} {name} {year}
 

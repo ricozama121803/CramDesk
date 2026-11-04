@@ -3,7 +3,7 @@ from datetime import date, time
 
 import pytest
 
-from crm.timeutil import (
+from cram.timeutil import (
     ParseError, add_business_days, billed_minutes, fmt_hm, fmt_hours_num, fmt_hrmin, fmt_range,
     parse_date, parse_hours, parse_time, parse_week, week_start,
 )

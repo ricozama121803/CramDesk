@@ -51,7 +51,7 @@ def _watermark(c):
     c.saveState()
     c.setFillColorRGB(0.5, 0.5, 0.55)
     c.setFont(F, 7)
-    c.drawRightString(W - 24, H - 18, "PREVIEW · not approved yet · crm approve")
+    c.drawRightString(W - 24, H - 18, "PREVIEW · not approved yet · cram approve")
     c.restoreState()
 
 
@@ -194,7 +194,7 @@ def render(r: Report, cfg: dict, path: Path, preview: bool = False) -> Path:
     c = canvas.Canvas(str(path), pagesize=letter)
     c.setTitle(f"{cfg['invoice']['doc_title']} {fmt_mdy(r.monday)} - {fmt_mdy(r.sunday)}")
     c.setAuthor(cfg["you"]["name"])
-    c.setCreator("crm")
+    c.setCreator("cram")
     _log_pages(c, r, cfg, preview)
     c.showPage()
     _invoice_page(c, r, cfg, preview)

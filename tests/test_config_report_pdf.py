@@ -4,9 +4,9 @@ import tomllib
 import pypdfium2 as pdfium
 import pytest
 
-from crm import config, pdf, report
-from crm.paths import config_file
-from crm.store import Store
+from cram import config, pdf, report
+from cram.paths import config_file
+from cram.store import Store
 from tests.conftest import MON, dt
 
 
@@ -21,7 +21,7 @@ def test_set_value_keeps_comments_and_handles_quotes():
     config.set_value("you", "name", 'Rico "the Punch" Z')
     config.set_value("invoice", "rate", 32.5)
     text = config_file().read_text()
-    assert "# crm config" in text and "# $ per hour" in text
+    assert "# cram config" in text and "# $ per hour" in text
     cfg = config.load()
     assert cfg["you"]["name"] == 'Rico "the Punch" Z' and cfg["invoice"]["rate"] == 32.5
 

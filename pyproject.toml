@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "crm"
+name = "cram"
 version = "0.1.0"
 description = "Clock in/out from the terminal, log what you did, export a weekly log + invoice PDF."
 requires-python = ">=3.11"
@@ -21,10 +21,10 @@ dependencies = [
 dev = ["pytest>=8", "freezegun>=1.5"]
 
 [project.scripts]
-crm = "crm.cli:run"
+cram = "cram.cli:run"
 
 [tool.setuptools]
-packages = ["crm"]
+packages = ["cram"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -18,7 +18,7 @@ from pathlib import Path
 OUT = Path(__file__).resolve().parent.parent / "docs" / "screenshots"
 NOW = datetime(2026, 10, 29, 15, 12, 30)   # a Thursday afternoon
 
-os.environ["CRM_HOME"] = tempfile.mkdtemp(prefix="crm-shots-")
+os.environ["CRAM_HOME"] = tempfile.mkdtemp(prefix="cram-shots-")
 
 import freezegun  # noqa: E402
 
@@ -33,11 +33,11 @@ def seed() -> None:
 
 
 async def shoot() -> None:
-    from crm import mascot
-    from crm.tui import BlockEditor, ConflictScreen, DayScreen, LogScreen, CrmApp, WeekPicker
+    from cram import mascot
+    from cram.tui import BlockEditor, ConflictScreen, DayScreen, LogScreen, CramApp, WeekPicker
 
     OUT.mkdir(parents=True, exist_ok=True)
-    app = CrmApp()
+    app = CramApp()
     async with app.run_test(size=(132, 44)) as pilot:
         main = app.main
 
@@ -96,11 +96,11 @@ async def shoot() -> None:
         await pilot.press("escape")
 
     # off the clock: Dewey asleep
-    from crm.store import Store
+    from cram.store import Store
     st = Store.load()
     st.running().end = datetime(2026, 10, 29, 15, 10)
     st.save(record=False)
-    app = CrmApp()
+    app = CramApp()
     async with app.run_test(size=(132, 44)) as pilot:
         await pilot.pause(0.5)
         app.main._mode, app.main._frame = "sleep", 3
@@ -113,11 +113,11 @@ async def shoot() -> None:
 def pdf_pages() -> None:
     import pypdfium2 as pdfium
 
-    from crm import config, pdf, report
-    from crm.store import Store
+    from cram import config, pdf, report
+    from cram.store import Store
 
     r = report.build(Store.load(), config.load(), date(2026, 10, 12))
-    path = pdf.render(r, config.load(), Path(os.environ["CRM_HOME"]) / "demo.pdf")
+    path = pdf.render(r, config.load(), Path(os.environ["CRAM_HOME"]) / "demo.pdf")
     doc = pdfium.PdfDocument(str(path))
     for i, name in enumerate(["pdf-log", "pdf-invoice"]):
         doc[i].render(scale=1.4).to_pil().save(OUT / f"{name}.png")

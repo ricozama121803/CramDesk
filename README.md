@@ -8,7 +8,7 @@
 
 ---
 
-> **Work in progress.** crm is a fresh copy of pnch with the name and mascot swapped.
+> **Work in progress.** cram is a fresh copy of pnch with the name and mascot swapped.
 > The invoice/billing parts are still there and will be replaced with per-topic study totals.
 
 ## Install
@@ -17,32 +17,32 @@ Needs **Python 3.11+**.
 
 ```sh
 pipx install -e ./CramDesk
-crm
+cram
 ```
 
 ## From the shell
 
 ```sh
-crm in linear algebra              # start studying (the topic is optional)
-crm add "eigenvectors, ch. 5"      # note what you're covering
-crm out --at 5:15pm                # forgot to stop
-crm v-today                        # today's timeline and sessions
-crm v-week                         # hours per day, every session, totals (-w last)
-crm edit                           # fix a session's times or notes
-crm undo                           # crm redo puts it back
-crm status                         # studying or not, hours today, the week
+cram in linear algebra             # start studying (the topic is optional)
+cram add "eigenvectors, ch. 5"     # note what you're covering
+cram out --at 5:15pm               # forgot to stop
+cram v-today                       # today's timeline and sessions
+cram v-week                        # hours per day, every session, totals (-w last)
+cram edit                          # fix a session's times or notes
+cram undo                          # cram redo puts it back
+cram status                        # studying or not, hours today, the week
 ```
 
-See `man crm` for everything.
+See `man cram` for everything.
 
 ## Files
 
 | Path | What's in it |
 | --- | --- |
-| `~/.config/crm/config.toml` | Your settings and theme |
-| `~/.local/share/crm/data.json` | The log (plus a `.bak` and undo history) |
+| `~/.config/cram/config.toml` | Your settings and theme |
+| `~/.local/share/cram/data.json` | The log (plus a `.bak` and undo history) |
 
-crm keeps its own files, separate from pnch. Set `CRM_HOME=/some/folder` to keep everything in one place.
+cram keeps its own files, separate from pnch. Set `CRAM_HOME=/some/folder` to keep everything in one place.
 
 ## Development
 

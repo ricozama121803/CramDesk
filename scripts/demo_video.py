@@ -2,12 +2,12 @@
 
     .venv/bin/pip install -e '.[dev]'
     pip install playwright            # any Python works for the render step; it uses your Chrome
-    .venv/bin/python scripts/demo_video.py record /tmp/crm-demo
-    python scripts/demo_video.py render /tmp/crm-demo [music.mp3]   # -> docs/demo.mp4 + docs/demo.gif
+    .venv/bin/python scripts/demo_video.py record /tmp/cram-demo
+    python scripts/demo_video.py render /tmp/cram-demo [music.mp3]   # -> docs/demo.mp4 + docs/demo.gif
 
-`record` drives crm with scripted key presses in a throwaway CRM_HOME (your own log and
+`record` drives cram with scripted key presses in a throwaway CRAM_HOME (your own log and
 config are never touched) and saves an SVG per frame plus how long each one stays on screen.
-It covers the full-screen app and then the `crm <command>` shell commands.
+It covers the full-screen app and then the `cram <command>` shell commands.
 `render` turns those into PNGs with headless Chrome and stitches them with ffmpeg. Give it an
 audio file and that becomes the soundtrack of the mp4 (fading out at the end); the gif stays silent.
 """
@@ -45,7 +45,7 @@ class Tape:
 
     async def snap(self, secs: float) -> None:
         await self.pilot.pause()
-        svg = self.app.export_screenshot(title="crm")
+        svg = self.app.export_screenshot(title="cram")
         name = hashlib.sha1(svg.encode()).hexdigest()[:16] + ".svg"
         (self.out / name).write_text(svg)
         if self.frames and self.frames[-1].get("svg") == name:
@@ -79,9 +79,9 @@ class Tape:
 
 
 async def first_run(tape: Tape) -> None:
-    from crm.tui import CrmApp
+    from cram.tui import CramApp
 
-    app = CrmApp()
+    app = CramApp()
     async with app.run_test(size=SIZE, notifications=True) as pilot:
         tape.app, tape.pilot = app, pilot
         await pilot.pause(0.4)
@@ -105,9 +105,9 @@ async def first_run(tape: Tape) -> None:
 
 
 async def a_few_days_in(tape: Tape, clock) -> None:
-    from crm.tui import CrmApp
+    from cram.tui import CramApp
 
-    app = CrmApp()
+    app = CramApp()
     # PDF previews leave the app for your PDF viewer; here we render the same PDF and show its pages.
     app.run_cli = lambda *args, wait=True: show_pdf(tape, args)
     async with app.run_test(size=SIZE, notifications=True) as pilot:
@@ -178,10 +178,10 @@ async def a_few_days_in(tape: Tape, clock) -> None:
 # ── the shell commands ───────────────────────────────────────────────────────
 
 class Shell:
-    """A fake terminal: runs `crm <command>` in-process and snaps what a real terminal would show.
+    """A fake terminal: runs `cram <command>` in-process and snaps what a real terminal would show.
 
-    Prompts read from a queue of answers that get "typed" on screen. Lines that crm shows already
-    filled in (crm edit) take "+text" to type onto the end, or "" to keep them as they are."""
+    Prompts read from a queue of answers that get "typed" on screen. Lines that cram shows already
+    filled in (cram edit) take "+text" to type onto the end, or "" to keep them as they are."""
 
     COLS, ROWS = SIZE
 
@@ -192,7 +192,7 @@ class Shell:
         import rich
         from rich.console import Console
 
-        from crm import cli, ui
+        from cram import cli, ui
 
         self.tape, self.ui = tape, ui
         self.con = Console(record=True, width=self.COLS, file=io.StringIO(), force_terminal=True,
@@ -204,7 +204,7 @@ class Shell:
         self.prefill: str | None = None
         builtins.input = self._input
         try:
-            import readline                  # catch what crm edit pre-types into a line
+            import readline                  # catch what cram edit pre-types into a line
             readline.set_startup_hook = lambda hook=None: setattr(self, "hook", hook)
             readline.insert_text = lambda text: setattr(self, "prefill", text)
         except ImportError:
@@ -228,7 +228,7 @@ class Shell:
         theme = copy.deepcopy(SVG_EXPORT_THEME)
         theme.background_color = Color.parse(self.ui.T.base).triplet
         theme.foreground_color = Color.parse(self.ui.T.text).triplet
-        svg = out.export_svg(title="crm · shell", theme=theme)
+        svg = out.export_svg(title="cram · shell", theme=theme)
         name = hashlib.sha1(svg.encode()).hexdigest()[:16] + ".svg"
         (self.tape.out / name).write_text(svg)
         frames = self.tape.frames
@@ -243,7 +243,7 @@ class Shell:
             self.snap(TYPE)
 
     def _input(self, prompt: str = "") -> str:
-        if self.hook:                        # a line crm shows already filled in
+        if self.hook:                        # a line cram shows already filled in
             self.hook()
             self.hook = None
         start, self.prefill = self.prefill or "", None
@@ -265,7 +265,7 @@ class Shell:
     def run(self, cmd: str, *answers: str, hold: float = 2.5, clear: bool = True) -> None:
         import shlex
 
-        from crm.cli import app
+        from cram.cli import app
 
         if clear:
             self.con.export_text(clear=True)   # a fresh screen per command reads better on video
@@ -286,36 +286,36 @@ class Shell:
 
 def shell_commands(tape: Tape, clock) -> None:
     sh = Shell(tape)
-    sh.run("crm status", hold=3.5)
-    sh.run('crm in "Reviewing PR feedback"', hold=2)
-    sh.run('crm add "Answered the review comments"', hold=1.5)
-    sh.run("crm v-block", hold=3)
+    sh.run("cram status", hold=3.5)
+    sh.run('cram in "Reviewing PR feedback"', hold=2)
+    sh.run('cram add "Answered the review comments"', hold=1.5)
+    sh.run("cram v-block", hold=3)
 
     tape.card("forty minutes later", secs=1.4)
     clock.move_to(NOW + timedelta(hours=2, minutes=50))
-    sh.run('crm out "Merged the PR"', hold=2.5)
+    sh.run('cram out "Merged the PR"', hold=2.5)
 
-    # off the clock: crm add asks which block from today or this week
-    sh.run("crm add", "y", "1", "1", "Synced with design on the chart colors", "", hold=2.5)
-    sh.run("crm v-today", hold=4)
+    # off the clock: cram add asks which block from today or this week
+    sh.run("cram add", "y", "1", "1", "Synced with design on the chart colors", "", hold=2.5)
+    sh.run("cram v-today", hold=4)
 
     # edit what you did, in place
-    sh.run("crm edit", "1", "1", "2", "", "+ and its empty states", "", "", "n", hold=3)
-    sh.run("crm v-week", hold=4.5)
-    sh.run("crm cycle-theme", hold=1.2)
-    sh.run("crm v-today", hold=3)
+    sh.run("cram edit", "1", "1", "2", "", "+ and its empty states", "", "", "n", hold=3)
+    sh.run("cram v-week", hold=4.5)
+    sh.run("cram cycle-theme", hold=1.2)
+    sh.run("cram v-today", hold=3)
 
 
 def show_pdf(tape: Tape, args: tuple) -> None:
-    """Stand-in for `crm preview`: build the same PDF and put its pages on screen."""
+    """Stand-in for `cram preview`: build the same PDF and put its pages on screen."""
     if not args or args[0] != "preview":
         return
     import pypdfium2 as pdfium
 
-    from crm import config, pdf, report
-    from crm.paths import cache_dir
-    from crm.store import Store
-    from crm.timeutil import parse_week
+    from cram import config, pdf, report
+    from cram.paths import cache_dir
+    from cram.store import Store
+    from cram.timeutil import parse_week
 
     week = args[args.index("-w") + 1] if "-w" in args else None
     cfg = config.load()
@@ -330,8 +330,8 @@ def show_pdf(tape: Tape, args: tuple) -> None:
 
 
 def record(out: Path) -> None:
-    os.environ["CRM_HOME"] = tempfile.mkdtemp(prefix="crm-demo-")
-    os.environ["HOME"] = os.environ["CRM_HOME"]   # exports land in the throwaway folder too
+    os.environ["CRAM_HOME"] = tempfile.mkdtemp(prefix="cram-demo-")
+    os.environ["HOME"] = os.environ["CRAM_HOME"]   # exports land in the throwaway folder too
     sys.path.insert(0, str(ROOT / "scripts"))
     import freezegun
 
@@ -341,17 +341,17 @@ def record(out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
     tape = Tape(out)
     with freezegun.freeze_time(NOW, tick=True) as clock:
-        tape.card("crm", "a time clock for your terminal")
+        tape.card("cram", "a time clock for your terminal")
         tape.card("first run", "a minute of setup")
         asyncio.run(first_run(tape))
         seed_log(running=False)
-        from crm.tui import write_heartbeat
+        from cram.tui import write_heartbeat
         write_heartbeat(clean=True)                            # as if you'd quit with ctrl+q
         tape.card("a few days in", "punch in, log what you do, punch out")
         asyncio.run(a_few_days_in(tape, clock))
-        tape.card("from the shell", "every action is also a crm command", secs=2.2)
+        tape.card("from the shell", "every action is also a cram command", secs=2.2)
         shell_commands(tape, clock)
-        tape.card("crm", "every week becomes a work log + invoice PDF", secs=3.5)
+        tape.card("cram", "every week becomes a work log + invoice PDF", secs=3.5)
     tape.save()
     print(f"{len(tape.frames)} frames, {sum(f['secs'] for f in tape.frames):.0f}s → {out}")
 

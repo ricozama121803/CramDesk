@@ -1,14 +1,14 @@
-"""Where crm keeps its files. Set CRM_HOME to put everything in one folder."""
+"""Where cram keeps its files. Set CRAM_HOME to put everything in one folder."""
 import os
 from pathlib import Path
 
 
 def _base(env: str, fallback: str, sub: str) -> Path:
-    home = os.environ.get("CRM_HOME")
+    home = os.environ.get("CRAM_HOME")
     if home:
         p = Path(home).expanduser() / sub
     else:
-        p = Path(os.environ.get(env) or Path.home() / fallback) / "crm"
+        p = Path(os.environ.get(env) or Path.home() / fallback) / "cram"
     p.mkdir(parents=True, exist_ok=True)
     return p
 

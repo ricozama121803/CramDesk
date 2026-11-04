@@ -1,4 +1,4 @@
-"""crm: the command line."""
+"""cram: the command line."""
 from __future__ import annotations
 
 import os
@@ -27,8 +27,8 @@ from .timeutil import (
 )
 
 app = typer.Typer(
-    name="crm",
-    help="⏱  [bold]crm[/]: clock in/out, log what you did, and ship a weekly log + invoice PDF.\n\nRun [b]crm[/] on its own for the full-screen app.",
+    name="cram",
+    help="⏱  [bold]cram[/]: clock in/out, log what you did, and ship a weekly log + invoice PDF.\n\nRun [b]cram[/] on its own for the full-screen app.",
     rich_markup_mode="rich",
     no_args_is_help=False,
     add_completion=True,
@@ -55,7 +55,7 @@ def _ensure_unlocked(store: Store, monday: date) -> None:
     if store.is_approved(monday):
         _fail(
             f"The week of {fmt_md(monday)} is approved and locked. "
-            f"Run [b]crm unapprove -w {monday.isoformat()}[/] to change it."
+            f"Run [b]cram unapprove -w {monday.isoformat()}[/] to change it."
         )
 
 
@@ -135,7 +135,7 @@ def _pick_block(store: Store, ask_first: bool) -> Session:
     others = [s for s in blocks if s.day != today]
     off = "You're off the clock. " if ask_first else ""
     if not blocks:
-        _fail(f"{off}Nothing logged this week. [b]crm in[/] to start a block.")
+        _fail(f"{off}Nothing logged this week. [b]cram in[/] to start a block.")
     if not _tty():
         _fail(f"{off}Run this in a terminal to pick a block.")
     if ask_first:
@@ -163,11 +163,11 @@ def clock_in(
     note: Optional[list[str]] = typer.Argument(None, help="What you're starting on (optional)."),
     at: Optional[str] = typer.Option(None, "--at", help="Start time if you forgot: 9:30am, 'yesterday 9pm'."),
 ):
-    """Clock in. [dim]e.g. crm in fixing the scraper[/]"""
+    """Clock in. [dim]e.g. cram in fixing the scraper[/]"""
     store, _ = _load()
     run = store.running()
     if run:
-        _fail(f"Already on the clock since {fmt_time(run.start)}. [b]crm out[/] first.")
+        _fail(f"Already on the clock since {fmt_time(run.start)}. [b]cram out[/] first.")
     start = parse_when(at) if at else now()
     if start > now() + timedelta(minutes=1):
         _fail("Can't clock in in the future.")
@@ -218,7 +218,7 @@ def add(
     text: Optional[list[str]] = typer.Argument(None, help="The description. Leave it out to type several lines."),
     id: Optional[int] = typer.Option(None, "--id", hidden=True),
 ):
-    """Describe what you're doing in the current block. [dim]e.g. crm add "checked the VPN prefix list"[/]
+    """Describe what you're doing in the current block. [dim]e.g. cram add "checked the VPN prefix list"[/]
 
     Off the clock, it asks which block from today or this week to add to."""
     store, _ = _load()
@@ -233,7 +233,7 @@ def add(
         lines = [" ".join(text)]
     else:
         if not _tty():
-            _fail("Give a description: [b]crm add \"…\"[/]")
+            _fail("Give a description: [b]cram add \"…\"[/]")
         ui.console.print(ui.session_card(s, "add to block", border=ui.T.accent2, notes_label="what I did"))
         lines = _ask_notes("What else do you want to add to this block?")
         if not lines:
@@ -308,7 +308,7 @@ def edit(
             if new_end <= new_start:
                 new_end += timedelta(days=1)
         elif end:
-            _fail("That session is still running. Use [b]crm out --at[/] to end it.")
+            _fail("That session is still running. Use [b]cram out --at[/] to end it.")
         _ensure_unlocked(store, week_start(d))
         if not (interactive and new_end and store.overlap(new_start, new_end, s.id)):
             break
@@ -368,7 +368,7 @@ def _show_dashboard(week: str | None = None) -> None:
     run = store.running()
     if run and run.minutes() > 12 * 60:
         ui.warn(f"You've been clocked in for {fmt_hm(run.minutes())}. Forgot to clock out? "
-                "[b]crm out --at 5pm[/]")
+                "[b]cram out --at 5pm[/]")
 
 
 @app.command()
@@ -442,10 +442,10 @@ def view_block(id: Optional[int] = typer.Option(None, "--id", hidden=True)):
     elif (s := store.last()):
         title, border = "last block (off the clock currently)", None
     else:
-        _fail("Nothing logged yet. [b]crm in[/] to start a block.")
+        _fail("Nothing logged yet. [b]cram in[/] to start a block.")
     ui.console.print(ui.session_card(s, title, border=border, notes_label="what I did"))
     if not s.notes:
-        ui.console.print(Text('  no descriptions yet, add one with  crm add "…"', style=ui.T.dim))
+        ui.console.print(Text('  no descriptions yet, add one with  cram add "…"', style=ui.T.dim))
 
 
 @app.command()
@@ -509,11 +509,11 @@ def approve(week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_H
     if store.is_approved(monday):
         r = report.build(store, cfg, monday)
         ui.ok(f"The week of {fmt_md(monday)} is already approved (invoice #{r.invoice_number}). "
-              "[b]crm export[/] makes the PDF.")
+              "[b]cram export[/] makes the PDF.")
         return
     run = store.running()
     if run and run.week == monday:
-        _fail("You're still clocked in this week. [b]crm out[/] first.")
+        _fail("You're still clocked in this week. [b]cram out[/] first.")
     r = report.build(store, cfg, monday)
     if not r.days:
         _fail(f"Nothing logged for the week of {fmt_md(monday)}.")
@@ -595,7 +595,7 @@ def export(
     monday = _pick_week(store, week)
     if not store.is_approved(monday):
         _fail(f"The week of {fmt_md(monday)} isn't approved yet. "
-              "Check it with [b]crm preview[/], then run [b]crm approve[/].")
+              "Check it with [b]cram preview[/], then run [b]cram approve[/].")
     r = report.build(store, cfg, monday)
     path = (out.expanduser() if out else _export_path(cfg, r)).resolve()
     pdf.render(r, cfg, path, preview=False)

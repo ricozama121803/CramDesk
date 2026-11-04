@@ -1,29 +1,29 @@
-.TH CRM 1 "November 2026" "crm 0.1.0" "User Commands"
+.TH CRAM 1 "November 2026" "cram 0.1.0" "User Commands"
 .SH NAME
-crm \- clock in and out from the terminal, log what you did, export a weekly log + invoice PDF
+cram \- clock in and out from the terminal, log what you did, export a weekly log + invoice PDF
 .SH SYNOPSIS
-.B crm
+.B cram
 .br
-.B crm
+.B cram
 .I command
 .RI [ options ]
 .RI [ arguments ]
 .SH DESCRIPTION
-.B crm
+.B cram
 keeps a log of the time you work and what you did in each block.
 At the end of a week you review and
 .I approve
 it, which locks the week, and then export a PDF with a log page and an invoice page.
 .PP
 Run
-.B crm
+.B cram
 on its own in a terminal to open the full-screen app.
 Every action is also available as a
-.B crm
+.B cram
 .I command
 for scripts and quick use from the shell.
 When output is not a terminal, plain
-.B crm
+.B cram
 prints the dashboard instead.
 .PP
 Everything is written to disk the moment it changes.
@@ -164,7 +164,7 @@ Show the config, open it in \fB$VISUAL\fR/\fB$EDITOR\fR, or print where files li
 .B cycle\-theme
 Switch to the next color theme.
 .SH CONFIGURATION
-\fI~/.config/crm/config.toml\fR is created on first run. Sections:
+\fI~/.config/cram/config.toml\fR is created on first run. Sections:
 .TP
 .B [you]
 name, title, address lines, email, paypal (shown on the invoice).
@@ -185,36 +185,36 @@ theme (\fBcatppuccin\fR, \fBnord\fR, \fBgruvbox\fR, \fBtokyonight\fR, \fBrosepin
 banner and mascot (\fBtrue\fR/\fBfalse\fR).
 .SH FILES
 .TP
-.I ~/.config/crm/config.toml
+.I ~/.config/cram/config.toml
 Your details, rate, theme and export settings.
 .TP
-.I ~/.local/share/crm/data.json
+.I ~/.local/share/cram/data.json
 The log. \fIdata.json.bak\fR is the previous version; a damaged file is replaced by it automatically.
 .TP
-.I ~/.local/share/crm/undo/ ", " redo/
+.I ~/.local/share/cram/undo/ ", " redo/
 Undo history.
 .TP
-.I ~/.local/share/crm/session.json
-Heartbeat used to notice that crm closed unexpectedly while you were clocked in.
+.I ~/.local/share/cram/session.json
+Heartbeat used to notice that cram closed unexpectedly while you were clocked in.
 .TP
-.I ~/Documents/crm/
+.I ~/Documents/cram/
 Default export folder.
 .SH ENVIRONMENT
 .TP
-.B CRM_HOME
+.B CRAM_HOME
 Keep config, data and cache in this one folder instead (handy for testing).
 .TP
 .BR XDG_CONFIG_HOME ", " XDG_DATA_HOME ", " XDG_CACHE_HOME
-Respected when \fBCRM_HOME\fR is not set.
+Respected when \fBCRAM_HOME\fR is not set.
 .SH EXIT STATUS
 0 on success, 1 when a command is refused (for example clocking in twice), 2 when an argument
 cannot be read (for example a time like \fB25pm\fR).
 .SH EXAMPLES
 .nf
-crm in fixing the scraper
-crm add "checked the VPN prefix list"
-crm out --at 5:15pm
-crm approve -w last && crm export -w last
+cram in fixing the scraper
+cram add "checked the VPN prefix list"
+cram out --at 5:15pm
+cram approve -w last && cram export -w last
 .fi
 .SH SEE ALSO
 https://github.com/ricozama121803/cram

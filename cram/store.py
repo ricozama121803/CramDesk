@@ -87,7 +87,7 @@ class Store:
             path.replace(broken)
             bak.replace(path)
             import sys
-            print(f"crm: {path.name} was damaged, restored the backup (damaged copy kept as {broken.name})",
+            print(f"cram: {path.name} was damaged, restored the backup (damaged copy kept as {broken.name})",
                   file=sys.stderr)
         next_id = raw.get("next_id") or (max((s.id for s in sessions), default=0) + 1)
         return cls(sessions, raw.get("weeks", {}), next_id)
