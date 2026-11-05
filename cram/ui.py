@@ -360,7 +360,7 @@ def todo_summary(store: Store, monday: date) -> Text:
     if not mine and not older:
         return Text("")
     done = sum(t.done for t in mine)
-    out = Text.assemble(("to-dos ", T.dim), (f"{done}/{len(mine)} done", f"bold {T.text}"))
+    out = Text.assemble(("notes ", T.dim), (f"{done}/{len(mine)} done", f"bold {T.text}"))
     if older:
         out.append(f"   +{len(older)} open from earlier", style=T.warn)
     return out
@@ -370,7 +370,7 @@ def todo_list(store: Store, monday: date) -> Group:
     mine, older = store.todos_for(monday)
     parts: list = []
     if not mine and not older:
-        return Group(Text('nothing to do yet. add one with  cram todo add "finish problem set 4"', style=T.dim))
+        return Group(Text('no notes yet. add one with  cram add note "read ch 7"', style=T.dim))
     parts += [todo_line(t) for t in mine] or [Text("nothing for this week yet", style=T.dim)]
     if older:
         parts += [Text(""), Text("still open from earlier weeks", style=f"bold {T.warn}")]

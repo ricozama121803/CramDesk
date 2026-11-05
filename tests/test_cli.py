@@ -59,17 +59,6 @@ def test_edit_into_another_block_is_refused():
     assert r.exit_code == 1 and "overlaps" in r.output
 
 
-def test_add_with_nothing_logged():
-    r = cram("add", "hello")
-    assert r.exit_code == 1 and "not studying" in r.output and "Nothing logged" in r.output
-
-
-def test_add_describes_the_running_block():
-    assert cram("in", "working").exit_code == 0
-    assert cram("add", "checked the VPN prefix list").exit_code == 0
-    assert Store.load().running().notes == ["working", "checked the VPN prefix list"]
-
-
 def _this_week_blocks():
     """One session today and one on another day of this week."""
     today = date.today()
@@ -78,39 +67,6 @@ def _this_week_blocks():
     st.add(datetime.combine(today, time(1)), datetime.combine(today, time(2)), ["today thing"])
     st.add(datetime.combine(other, time(1)), datetime.combine(other, time(2)), ["other thing"])
     st.save()
-
-
-def test_add_off_the_clock_lets_you_pick_a_block_from_today(monkeypatch):
-    _this_week_blocks()
-    monkeypatch.setattr(cli, "_tty", lambda: True)
-    r = cram("add", "late note", input="y\n1\n1\n")
-    assert r.exit_code == 0, r.output
-    assert "not studying" in r.output and "From today" in r.output
-    notes = {s.notes[0]: s.notes for s in Store.load().sessions}
-    assert notes["today thing"] == ["today thing", "late note"]
-    assert notes["other thing"] == ["other thing"]
-
-
-def test_add_off_the_clock_from_another_day_and_typed_lines(monkeypatch):
-    _this_week_blocks()
-    monkeypatch.setattr(cli, "_tty", lambda: True)
-    r = cram("add", input="y\n2\n1\nfirst\nsecond\n\n")
-    assert r.exit_code == 0, r.output
-    notes = {s.notes[0]: s.notes for s in Store.load().sessions}
-    assert notes["other thing"] == ["other thing", "first", "second"]
-
-
-def test_add_off_the_clock_saying_no_adds_nothing(monkeypatch):
-    _this_week_blocks()
-    monkeypatch.setattr(cli, "_tty", lambda: True)
-    assert cram("add", "nope", input="n\n").exit_code == 0
-    assert all(len(s.notes) == 1 for s in Store.load().sessions)
-
-
-def test_add_off_the_clock_without_a_terminal_is_refused():
-    _this_week_blocks()
-    r = cram("add", "x")
-    assert r.exit_code == 1 and "terminal" in r.output
 
 
 def test_edit_picks_a_block(monkeypatch):
@@ -251,7 +207,7 @@ def test_edit_overlap_change_the_times_instead(monkeypatch):
 
 def test_class_add_list_rename_and_remove():
     r = cram("class", "add", "Linear", "Algebra,", "Chemistry")
-    assert r.exit_code == 0 and "Added Linear Algebra" in r.output and "Added Chemistry" in r.output
+    assert r.exit_code == 0 and "Created Linear Algebra" in r.output and "Created Chemistry" in r.output
     assert "already one of your classes" in cram("class", "add", "chemistry").output
     cram("in", "--at", "10/14/26 9am", "linear", "algebra", "eigenvectors")
     cram("out", "--at", "10/14/26 10am", "done")
@@ -312,12 +268,12 @@ def test_undo_takes_back_a_new_class():
 def test_todo_add_list_done_and_carry_over():
     cram("class", "add", "Chemistry")
     assert "No to-do" not in cram("todo").output
-    cram("todo", "add", "chem", "read", "ch", "7")
+    cram("todo", "add", "read", "ch", "7")
     cram("todo", "add", "-w", "last", "review", "notes")
     cram("todo", "add", "-w", "last", "old", "finished", "thing")
     cram("todo", "done", "3")
     t = Store.load().get_todo(1)
-    assert t.course == "Chemistry" and t.text == "read ch 7"
+    assert t.course is None and t.text == "read ch 7"       # notes aren't tagged with a class
     r = cram("todo")
     assert "read ch 7" in r.output and "still open from earlier weeks" in r.output
     assert "review notes" in r.output and "old finished thing" not in r.output   # done ones stay in their week
@@ -332,8 +288,8 @@ def test_todo_add_list_done_and_carry_over():
 
 def test_todo_shows_in_the_week_view_and_undo():
     cram("todo", "add", "finish", "essay")
-    assert "to-do" in cram("v-week").output and "finish essay" in cram("v-week").output
-    assert "add to-do “finish essay”" in cram("undo").output
+    assert "notes" in cram("v-week").output and "finish essay" in cram("v-week").output
+    assert "add note “finish essay”" in cram("undo").output
     assert Store.load().todos == []
 
 
@@ -348,7 +304,9 @@ def complete(line):
 
 def test_tab_completes_commands_and_class_names_word_by_word():
     cram("class", "add", "Linear Algebra, Linear Programming, Chemistry")
-    assert {"in", "out", "todo", "class"} <= set(complete("cram "))
+    assert set(complete("cram ")) == {"start", "stop", "add", "create", "ls-class", "ls-note"}   # old names hidden
+    assert set(complete("cram add ")) == {"details", "note", "block"}
+    assert complete("cram start lin") == ["linear"]
     assert complete("cram in lin") == ["linear"]
     assert complete("cram in linear ") == ["algebra", "programming"]
     assert complete("cram in --at 9am ch") == ["chemistry"]
@@ -371,37 +329,6 @@ def test_week_next_works():
     assert parse_week("next", MON) == MON + timedelta(weeks=1)
 
 
-def test_swapped_add_todo_is_caught_not_saved_as_a_note():
-    cram("in", "--at", "10/14/26 9am")
-    r = cram("add", "todo", "review the statics notes/slides from mon and wednesday")
-    assert r.exit_code == 1 and "cram todo add" in r.output
-    assert Store.load().running().notes == [] and Store.load().todos == []
-
-
-def test_swapped_add_todo_in_a_terminal_offers_the_fix(monkeypatch):
-    monkeypatch.setattr(cli, "_tty", lambda: True)
-    cram("in", "--at", "10/14/26 9am")
-    r = cram("add", "todo", "review the statics notes", input="y\n")
-    assert r.exit_code == 0, r.output
-    assert [t.text for t in Store.load().todos] == ["review the statics notes"]
-    assert Store.load().running().notes == []
-    r = cram("add", "class", "Statics", input="y\n")
-    assert Store.load().classes == ["Statics"]
-
-
-def test_swapped_add_todo_answered_no_keeps_it_as_a_note(monkeypatch):
-    monkeypatch.setattr(cli, "_tty", lambda: True)
-    cram("in", "--at", "10/14/26 9am")
-    cram("add", "todo", "list for later", input="n\n")
-    assert Store.load().running().notes == ["todo list for later"] and Store.load().todos == []
-
-
-def test_quoted_note_starting_with_todo_is_just_a_note():
-    cram("in", "--at", "10/14/26 9am")
-    assert cram("add", "todo: ask about the quiz").exit_code == 0
-    assert Store.load().running().notes == ["todo: ask about the quiz"]
-
-
 def test_list_and_remove_aliases():
     cram("class", "add", "Chemistry, Statics")
     cram("todo", "add", "read ch 7")
@@ -409,4 +336,95 @@ def test_list_and_remove_aliases():
     assert "read ch 7" in cram("todo", "list").output and "read ch 7" in cram("todo", "ls").output
     assert cram("class", "remove", "statics").exit_code == 0 and Store.load().classes == ["Chemistry"]
     assert cram("todo", "delete", "1").exit_code == 0 and Store.load().todos == []
-    assert set(complete("cram todo ")) == {"add", "list", "done", "uncheck", "rm", "clear"}   # aliases stay hidden
+
+
+
+
+# ── the commands you see ─────────────────────────────────────────────────────
+
+def test_start_details_stop():
+    cram("create", "class", "Statics, Calc III")
+    r = cram("start", "--at", "10/14/26 9am", "stat", "review", "slides")
+    assert r.exit_code == 0, r.output
+    run_ = Store.load().running()
+    assert run_.course == "Statics" and run_.notes == ["review slides"]
+    assert cram("add", "details", "ch 5 problems").exit_code == 0
+    r = cram("stop", "--at", "10/14/26 10:30am")
+    assert r.exit_code == 0 and "stopped" in r.output
+    s = Store.load().sessions[0]
+    assert s.end is not None and s.notes == ["review slides", "ch 5 problems"]
+
+
+def test_start_without_a_class_asks_in_a_terminal(monkeypatch):
+    monkeypatch.setattr(cli, "_tty", lambda: True)
+    cram("create", "class", "Statics, Calc III")
+    r = cram("start", "--at", "10/14/26 9am", input="2\n")
+    assert r.exit_code == 0, r.output
+    assert Store.load().running().course == "Calc III"
+
+
+def test_start_without_a_class_and_none_yet_asks_for_a_name(monkeypatch):
+    monkeypatch.setattr(cli, "_tty", lambda: True)
+    r = cram("start", "--at", "10/14/26 9am", input="Statics\n")
+    assert r.exit_code == 0, r.output
+    assert Store.load().classes == ["Statics"] and Store.load().running().course == "Statics"
+
+
+def test_start_without_a_class_outside_a_terminal_says_which():
+    cram("create", "class", "Statics")
+    r = cram("start", "--at", "10/14/26 9am")
+    assert r.exit_code == 1 and "Which class?" in r.output and "Statics" in r.output
+    assert Store.load().sessions == []
+
+
+def test_start_with_an_unknown_class():
+    r = cram("start", "--at", "10/14/26 9am", "bio")
+    assert r.exit_code == 1 and "cram create class bio" in r.output
+
+
+def test_details_and_stop_need_a_running_block():
+    assert cram("add", "details", "x").exit_code == 1
+    assert cram("stop").exit_code == 1
+
+
+def test_add_note_and_ls_note():
+    assert cram("add", "note", "read ch 7").exit_code == 0
+    assert cram("add", "todo", "old word works").exit_code == 0        # hidden alias
+    r = cram("ls-note")
+    assert "read ch 7" in r.output and "old word works" in r.output
+
+
+def test_add_block_asks_everything(monkeypatch):
+    monkeypatch.setattr(cli, "_tty", lambda: True)
+    cram("create", "class", "Statics")
+    r = cram("add", "block", input="1\n10/14/26\n9am\n10:15am\nmoments\n")
+    assert r.exit_code == 0, r.output
+    s = Store.load().sessions[0]
+    assert (s.course, s.start, s.end, s.notes) == ("Statics", datetime(2026, 10, 14, 9),
+                                                    datetime(2026, 10, 14, 10, 15), ["moments"])
+
+
+def test_add_block_retries_an_overlap(monkeypatch):
+    monkeypatch.setattr(cli, "_tty", lambda: True)
+    cram("create", "class", "Statics")
+    block("10/14/26", 9, 10, "a")
+    r = cram("add", "block", input="1\n10/14/26\n9:30am\n11am\n10/14/26\n10am\n11am\n\n")
+    assert r.exit_code == 0 and "overlaps" in r.output
+    assert len(Store.load().sessions) == 2
+
+
+def test_create_class_and_ls_class():
+    r = cram("create", "class", "Statics, Calc III")
+    assert r.exit_code == 0 and "cram start statics" in r.output
+    r = cram("ls-class")
+    assert "Statics" in r.output and "Calc III" in r.output
+
+
+def test_old_commands_still_work_but_are_hidden():
+    cram("class", "add", "Statics")
+    assert cram("in", "--at", "10/14/26 9am", "statics").exit_code == 0
+    assert cram("out", "--at", "10/14/26 10am", "x").exit_code == 0
+    r = cram("--help")
+    listed = r.output[r.output.index("Commands"):]
+    for old in ("│ in ", "│ out ", "│ v-week", "│ todo", "│ class ", "│ cycle-theme", "│ edit", "│ undo"):
+        assert old not in listed, old

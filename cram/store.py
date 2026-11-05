@@ -183,12 +183,7 @@ class Store:
         text = " ".join(text.split())
         if not text:
             raise ValueError("a to-do needs some text")
-        course, rest = self.match_class(text)
-        if course and rest:                 # "la problem set 4" -> Linear Algebra: problem set 4
-            text = rest
-        else:
-            course = None
-        t = Todo(max((x.id for x in self.todos), default=0) + 1, text, week_start(week), course=course)
+        t = Todo(max((x.id for x in self.todos), default=0) + 1, text, week_start(week))
         self.todos.append(t)
         return t
 

@@ -27,7 +27,10 @@ from .timeutil import (
 
 app = typer.Typer(
     name="cram",
-    help="⏱  [bold]cram[/]: track your study hours. Start a session, note what you covered, stop.\n\nRun [b]cram[/] on its own for the full-screen app.",
+    help="⏱  [bold]cram[/]: track your study hours.\n\n"
+         "[b]cram start[/] statics · [b]cram stop[/] · [b]cram add[/] details/note/block · "
+         "[b]cram create class[/] · [b]cram ls-class[/] · [b]cram ls-note[/]\n\n"
+         "Run [b]cram[/] on its own for the app, which does everything else.",
     rich_markup_mode="rich",
     no_args_is_help=False,
     add_completion=True,
@@ -206,7 +209,7 @@ def _pick_block(store: Store, ask_first: bool) -> Session:
     others = [s for s in blocks if s.day != today]
     off = "You're not studying right now. " if ask_first else ""
     if not blocks:
-        _fail(f"{off}Nothing logged this week. [b]cram in[/] to start a session.")
+        _fail(f"{off}Nothing logged this week. [b]cram start[/] to begin.")
     if not _tty():
         _fail(f"{off}Run this in a terminal to pick a session.")
     if ask_first:
@@ -238,7 +241,7 @@ def _class_arg(store: Store, value: str) -> str | None:
     hits = _ambiguous(store, value)
     if len(hits) > 1:
         _fail(f"'{value}' could be {' or '.join(hits)}. Type more of the name.")
-    _fail(f"'{value}' isn't one of your classes. Add it with [b]cram class add {value}[/].")
+    _fail(f"'{value}' isn't one of your classes. Create it with [b]cram create class {value}[/].")
 
 
 def _split_class(store: Store, text: str) -> tuple[str | None, str]:
@@ -257,35 +260,9 @@ def _split_class(store: Store, text: str) -> tuple[str | None, str]:
     return None, text
 
 
-_GROUPS = {"todo": "todo", "todos": "todo", "to-do": "todo", "class": "class", "classes": "class"}
-
-
-def _caught_swap(cmd: str, words: list[str] | None) -> bool:
-    """Catch `cram add todo "…"` meant as `cram todo add "…"` (same for class).
-
-    Only when the group name is its own word: `cram add "todo …"` (quoted) is a real note.
-    Returns True when it handled the command, so the caller should stop."""
-    if not words or len(words) < 2 or words[0].lower() not in _GROUPS:
-        return False
-    group, rest = _GROUPS[words[0].lower()], words[1:]
-    meant = f"cram {group} {cmd} " + " ".join(f'"{w}"' if " " in w else w for w in rest)
-    what = "a to-do for this week" if group == "todo" else "a class"
-    if not _tty():
-        _fail(f"Did you mean [b]{meant}[/]? That adds {what}.\n"
-              f"  To use '{words[0]}' as the first word of a note, quote it all: [b]cram {cmd} \"{words[0]} …\"[/]")
-    ui.warn(f"[b]cram {cmd} {words[0]} …[/] looks like it's in the wrong order.")
-    if Confirm.ask(Text(f"  Did you mean  {meant}  (adds {what})?", style=f"bold {ui.T.text}"), default=True):
-        if group == "todo":
-            todo_add(text=rest, week=None)
-        else:
-            class_add(name=rest)
-        return True
-    return False
-
-
 # ── clocking ─────────────────────────────────────────────────────────────────
 
-@app.command("in")
+@app.command("in", hidden=True)
 def clock_in(
     note: Optional[list[str]] = typer.Argument(None, help="The class, then anything else about it (optional).",
                                                 autocompletion=_class_word_completer("note")),
@@ -297,7 +274,7 @@ def clock_in(
     store, _ = _load()
     run = store.running()
     if run:
-        _fail(f"Already studying since {fmt_time(run.start)}. [b]cram out[/] first.")
+        _fail(f"Already studying since {fmt_time(run.start)}. [b]cram stop[/] first.")
     start = parse_when(at) if at else now()
     if start > now() + timedelta(minutes=1):
         _fail("Can't start in the future.")
@@ -312,7 +289,7 @@ def clock_in(
     ui.console.print(ui.session_card(s, "studying", border=ui.T.ok))
 
 
-@app.command("out")
+@app.command("out", hidden=True)
 def clock_out(
     note: Optional[list[str]] = typer.Argument(None, help="What you covered (otherwise you'll be asked)."),
     at: Optional[str] = typer.Option(None, "--at", help="End time if you forgot: 5:15pm, 'today 5pm'."),
@@ -347,40 +324,7 @@ def clock_out(
     ui.console.print(Text("  ") + ui.totals_line(r))
 
 
-@app.command()
-def add(
-    text: Optional[list[str]] = typer.Argument(None, help="The description. Leave it out to type several lines."),
-    id: Optional[int] = typer.Option(None, "--id", hidden=True),
-):
-    """Describe what you're doing in the current session. [dim]e.g. cram add "flashcards for ch 5"[/]
-
-    When you're not studying, it asks which session from today or this week to add to."""
-    store, _ = _load()
-    if not id and _caught_swap("add", text):
-        return
-    if id:
-        s = store.get(id)
-        if not s:
-            _fail(f"No session #{id}.")
-    else:
-        s = store.running() or _pick_block(store, ask_first=True)
-    if text:
-        lines = [" ".join(text)]
-    else:
-        if not _tty():
-            _fail("Give a description: [b]cram add \"…\"[/]")
-        ui.console.print(ui.session_card(s, "add to session", border=ui.T.accent2, notes_label="what I covered"))
-        lines = _ask_notes("What else do you want to add to this session?")
-        if not lines:
-            ui.info("Nothing added.")
-            raise typer.Exit()
-    s.notes += lines
-    store.save()
-    what = "Description" if len(lines) == 1 else f"{len(lines)} descriptions"
-    ui.ok(f"{what} added to {ui.block_label(s)}")
-
-
-@app.command()
+@app.command(hidden=True)
 def edit(
     id: Optional[int] = typer.Argument(None, hidden=True, autocompletion=_complete_session_id),
     day: Optional[str] = typer.Option(None, "--date", "-d", help="Move to another date.", autocompletion=_complete_day),
@@ -451,7 +395,7 @@ def edit(
             if new_end <= new_start:
                 new_end += timedelta(days=1)
         elif end:
-            _fail("That session is still running. Use [b]cram out --at[/] to end it.")
+            _fail("That session is still running. Use [b]cram stop --at[/] to end it.")
         if not (interactive and new_end and store.overlap(new_start, new_end, s.id)):
             break
         how = _resolve_overlap(store, new_start, new_end, s.id)
@@ -472,7 +416,7 @@ def edit(
 
 def _pick_class(store: Store, current: str | None) -> str | None:
     if not store.classes:
-        _fail("You don't have any classes yet. Add one with [b]cram class add …[/].")
+        _fail("You don't have any classes yet. Create one with [b]cram create class …[/].")
     labels = [c + ("   (current)" if c == current else "") for c in store.classes] + ["No class"]
     i = _choose("Which class?", labels)
     return store.classes[i] if i < len(store.classes) else None
@@ -520,10 +464,10 @@ def _show_dashboard(week: str | None = None) -> None:
     run = store.running()
     if run and run.minutes() > 12 * 60:
         ui.warn(f"You've been studying for {fmt_hm(run.minutes())}. Forgot to stop? "
-                "[b]cram out --at 5pm[/]")
+                "[b]cram stop --at 5pm[/]")
 
 
-@app.command()
+@app.command(hidden=True)
 def status(
     watch: bool = typer.Option(False, "--watch", "-W", help="Live-updating dashboard (ctrl-c to quit)."),
     week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_HELP, autocompletion=_complete_week),
@@ -547,7 +491,7 @@ def status(
 
 # ── quick views ──────────────────────────────────────────────────────────────
 
-@app.command("v-today")
+@app.command("v-today", hidden=True)
 def view_today(day: Optional[str] = typer.Argument(None, help="Another day instead: yesterday, tue, 10/14.",
                                                         autocompletion=_complete_day)):
     """View today's sessions: a timeline plus what you covered in each."""
@@ -567,7 +511,7 @@ def view_today(day: Optional[str] = typer.Argument(None, help="Another day inste
                                     Text(""), ui.class_bars(blocks), Text(""), ui.blocks_table(blocks), Text(""), foot), title))
 
 
-@app.command("v-week")
+@app.command("v-week", hidden=True)
 def view_week(week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK_HELP, autocompletion=_complete_week)):
     """View a week: hours per day, every session and the totals."""
     store, cfg = _load()
@@ -580,11 +524,11 @@ def view_week(week: Optional[str] = typer.Option(None, "--week", "-w", help=WEEK
     parts += [Text(""), ui.totals_line(r)]
     mine, older = store.todos_for(monday)
     if mine or older:
-        parts += [Text(""), Text("to-do", style=f"bold {ui.T.accent}"), ui.todo_list(store, monday)]
+        parts += [Text(""), Text("notes", style=f"bold {ui.T.accent}"), ui.todo_list(store, monday)]
     ui.console.print(ui.panel(Group(*parts), f"week {fmt_md(r.monday)} – {fmt_md(r.sunday)}"))
 
 
-@app.command("v-block")
+@app.command("v-block", hidden=True)
 def view_block(id: Optional[int] = typer.Option(None, "--id", hidden=True)):
     """View the session you're studying in, or your most recent one."""
     store, _ = _load()
@@ -598,13 +542,13 @@ def view_block(id: Optional[int] = typer.Option(None, "--id", hidden=True)):
     elif (s := store.last()):
         title, border = "last session (not studying right now)", None
     else:
-        _fail("Nothing logged yet. [b]cram in[/] to start a session.")
+        _fail("Nothing logged yet. [b]cram start[/] to begin.")
     ui.console.print(ui.session_card(s, title, border=border, notes_label="what I covered"))
     if not s.notes:
-        ui.console.print(Text('  no descriptions yet, add one with  cram add "…"', style=ui.T.dim))
+        ui.console.print(Text('  no details yet, add some with  cram add details "…"', style=ui.T.dim))
 
 
-@app.command()
+@app.command(hidden=True)
 def weeks(n: int = typer.Option(8, "--last", "-n", help="How many weeks back.")):
     """Hours studied in each of your recent weeks."""
     from rich import box
@@ -632,7 +576,7 @@ def weeks(n: int = typer.Option(8, "--last", "-n", help="How many weeks back."))
 
 class_app = typer.Typer(help="Your classes: [b]cram class add Linear Algebra[/], rm, rename, or just [b]cram class[/] to list them.",
                         rich_markup_mode="rich", invoke_without_command=True, no_args_is_help=False)
-app.add_typer(class_app, name="class")
+app.add_typer(class_app, name="class", hidden=True)
 
 
 @class_app.callback()
@@ -641,7 +585,7 @@ def _class_root(ctx: typer.Context):
         _list_classes()
 
 
-@app.command("classes")
+@app.command("classes", hidden=True)
 def list_classes():
     """List your classes with hours this week and in total."""
     _list_classes()
@@ -650,8 +594,8 @@ def list_classes():
 def _list_classes() -> None:
     store, _ = _load()
     if not store.classes and not store.sessions:
-        ui.info("No classes yet. Add one with [b]cram class add Linear Algebra[/] "
-                "(several at once: [b]cram class add Linear Algebra, Chemistry[/]).")
+        ui.info("No classes yet. Create one with [b]cram create class Statics[/] "
+                "(several at once: [b]cram create class Statics, Calc III[/]).")
         return
     ui.console.print(ui.panel(ui.classes_table(store), "classes"))
 
@@ -672,10 +616,10 @@ def class_add(name: list[str] = typer.Argument(..., help="The class name. Separa
         if part.strip():
             (had if store.find_class(part) else added).append(store.add_class(part))
     if not added and not had:
-        _fail("Give the class a name: [b]cram class add Linear Algebra[/]")
+        _fail("Give the class a name: [b]cram create class Statics[/]")
     store.save()
     for c in added:
-        ui.ok(f"Added [b]{c}[/]. Start with [b]cram in {c.lower()}[/]")
+        ui.ok(f"Created [b]{c}[/]. Start with [b]cram start {c.lower()}[/]")
     for c in had:
         ui.info(f"[b]{c}[/] is already one of your classes.")
 
@@ -714,7 +658,7 @@ def class_rename(old: str = typer.Argument(..., help="Current name (quote it if 
 todo_app = typer.Typer(help="Notes to self for the week (no reminders). [b]cram todo add finish problem set 4[/], "
                             "done, uncheck, rm, or just [b]cram todo[/] to see the list.",
                        rich_markup_mode="rich", invoke_without_command=True, no_args_is_help=False)
-app.add_typer(todo_app, name="todo")
+app.add_typer(todo_app, name="todo", hidden=True)
 
 
 @todo_app.callback()
@@ -725,7 +669,7 @@ def _todo_root(ctx: typer.Context, week: Optional[str] = typer.Option(None, "--w
 
 def _show_todos(monday: date) -> None:
     store, _ = _load()
-    title = f"to-do · week {fmt_md(monday)} – {fmt_md(monday + timedelta(days=6))}"
+    title = f"notes · week {fmt_md(monday)} – {fmt_md(monday + timedelta(days=6))}"
     ui.console.print(ui.panel(ui.todo_list(store, monday), title, subtitle=ui.todo_summary(store, monday) or None))
 
 
@@ -734,7 +678,7 @@ def _todo_ids(store: Store, ids: list[int]):
     for i in ids:
         t = store.get_todo(i)
         if not t:
-            _fail(f"No to-do #{i}. [b]cram todo[/] shows the numbers.")
+            _fail(f"No note #{i}. [b]cram ls-note[/] shows the numbers.")
         found.append(t)
     return found
 
@@ -809,9 +753,180 @@ def todo_clear(week: Optional[str] = typer.Option(None, "--week", "-w", help=WEE
     ui.ok(f"Cleared {len(gone)} checked-off to-do{'s' if len(gone) != 1 else ''}.")
 
 
+# ── the commands you see ─────────────────────────────────────────────────────
+# cram start · stop · add details/note/block · create class · ls-class · ls-note.
+# Everything else lives in the app (plain `cram`). Older names still work but are hidden.
+
+def _ask_class(store: Store) -> str:
+    """Ask which class this is for; offers to create one. Only called in a terminal."""
+    if store.classes:
+        labels = list(store.classes) + ["A new class…"]
+        i = _choose("Which class?", labels)
+        if i < len(store.classes):
+            return store.classes[i]
+    else:
+        ui.info("You don't have any classes yet.")
+    from rich.prompt import Prompt
+    name = Prompt.ask(Text("  Class name", style=f"bold {ui.T.text}")).strip()
+    if not name:
+        _fail("No class given. Nothing started.")
+    return store.add_class(name)
+
+
+def _class_from_words(store: Store, words: list[str] | None) -> tuple[str, str]:
+    """`cram start statics review slides` -> ('Statics', 'review slides'). Asks when nothing is given."""
+    text = " ".join(words or [])
+    if not text:
+        if not _tty():
+            names = ", ".join(store.classes) or "none yet"
+            _fail(f"Which class? [b]cram start <class>[/]  (your classes: {names})")
+        return _ask_class(store), ""
+    course, rest = store.match_class(text)
+    if course:
+        return course, rest
+    hits = _ambiguous(store, text)
+    if len(hits) > 1:
+        _fail(f"'{text.split()[0]}' could be {' or '.join(hits)}. Type more of the name.")
+    if not _tty():
+        _fail(f"'{text}' isn't one of your classes. Create it with [b]cram create class {text}[/].")
+    if Confirm.ask(Text(f"  '{text}' isn't one of your classes. Create it?", style=f"bold {ui.T.text}"), default=True):
+        return store.add_class(text), ""
+    return _ask_class(store), ""
+
+
+@app.command("start")
+def start_cmd(
+    words: Optional[list[str]] = typer.Argument(None, help="The class, optionally followed by details.",
+                                                 autocompletion=_class_word_completer("words")),
+    at: Optional[str] = typer.Option(None, "--at", help="Start time if you forgot: 9:30am, 'yesterday 9pm'."),
+):
+    """Start a study block. [dim]e.g. cram start statics[/] · no class: it asks which one"""
+    store, _ = _load()
+    run = store.running()
+    if run:
+        _fail(f"Already studying {run.course or ''} since {fmt_time(run.start)}. [b]cram stop[/] first.")
+    when = parse_when(at) if at else now()
+    if when > now() + timedelta(minutes=1):
+        _fail("Can't start in the future.")
+    _check_overlap(store, when, None)
+    course, details = _class_from_words(store, words)
+    s = store.add(when, None, [details] if details else [], course)
+    store.save()
+    ui.console.print(ui.session_card(s, "studying", border=ui.T.ok))
+
+
+@app.command("stop")
+def stop_cmd(at: Optional[str] = typer.Option(None, "--at", help="End time if you forgot: 5:15pm, 'today 5pm'.")):
+    """Stop the current study block."""
+    store, cfg = _load()
+    run = store.running()
+    if not run:
+        _fail("You're not studying right now. [b]cram start[/] to begin.")
+    end = parse_when(at, default_date=run.start.date()) if at else now()
+    if at and end <= run.start and len(at.split()) == 1:
+        end += timedelta(days=1)  # studied past midnight
+    if end <= run.start:
+        _fail(f"End time has to be after the start ({fmt_time(run.start)}).")
+    if end > now() + timedelta(minutes=1):
+        _fail("Can't stop in the future.")
+    run.end = end
+    store.save()
+    ui.console.print(ui.session_card(run, "stopped", border=ui.T.accent, notes_label="details"))
+    ui.console.print(Text("  ") + ui.totals_line(report.build(store, cfg, run.week)))
+
+
+add_app = typer.Typer(help="Add [b]details[/] to the current block, a [b]note[/] to self, or a past [b]block[/].",
+                      rich_markup_mode="rich", no_args_is_help=True)
+app.add_typer(add_app, name="add")
+
+
+@add_app.command("details")
+def add_details(text: list[str] = typer.Argument(..., help="What you're covering.")):
+    """Add details to the block you're in. [dim]e.g. cram add details "ch 5 problems"[/]"""
+    store, _ = _load()
+    run = store.running()
+    if not run:
+        _fail("You're not studying right now. [b]cram start[/] first.")
+    run.notes.append(" ".join(text))
+    store.save()
+    ui.ok(f"Added to your {run.course or ''} block: {' '.join(text)}")
+
+
+@add_app.command("note")
+@add_app.command("todo", hidden=True)
+def add_note(text: list[str] = typer.Argument(..., help="The note.")):
+    """Add a note to self for this week (no reminders). [dim]e.g. cram add note "read ch 7"[/]"""
+    store, _ = _load()
+    try:
+        t = store.add_todo(" ".join(text), week_start(date.today()))
+    except ValueError:
+        _fail('Give the note some text: [b]cram add note "read ch 7"[/]')
+    store.save()
+    ui.ok(f"Noted: {t.text}   [dim](check it off in the app: [b]cram[/])[/]")
+
+
+@add_app.command("block")
+def add_block():
+    """Log a past block you forgot to start. Asks the class, day, start and end."""
+    if not _tty():
+        _fail("Run this in a terminal: it asks the class, day and times.")
+    from rich.prompt import Prompt
+    store, _ = _load()
+    course = _ask_class(store)
+    while True:
+        try:
+            d = parse_date(Prompt.ask(Text("  Day", style=f"bold {ui.T.text}"), default="today"))
+            st = datetime.combine(d, parse_time(Prompt.ask(Text("  Start", style=f"bold {ui.T.text}"))))
+            en = datetime.combine(d, parse_time(Prompt.ask(Text("  End", style=f"bold {ui.T.text}"))))
+        except ParseError as e:
+            ui.err(str(e))
+            continue
+        if en <= st:
+            en += timedelta(days=1)           # past midnight
+        if en > now() + timedelta(minutes=1):
+            ui.err("That ends in the future.")
+            continue
+        o = store.overlap(st, en)
+        if o:
+            ui.err(f"That overlaps your block on {ui.block_label(o)}.")
+            continue
+        break
+    details = Prompt.ask(Text("  Details (optional)", style=f"bold {ui.T.text}"), default="").strip()
+    s = store.add(st, en, [details] if details else [], course)
+    store.save()
+    ui.console.print(ui.session_card(s, "block added", border=ui.T.ok, notes_label="details"))
+
+
+@add_app.command("class", hidden=True)
+def add_class_alias(name: list[str] = typer.Argument(...)):
+    create_class(name)
+
+
+create_app = typer.Typer(help="Create a [b]class[/].", rich_markup_mode="rich", no_args_is_help=True)
+app.add_typer(create_app, name="create")
+
+
+@create_app.command("class")
+def create_class(name: list[str] = typer.Argument(..., help="The class name. Separate several with commas.")):
+    """Create a class. [dim]e.g. cram create class Statics, Calc III[/]"""
+    class_add(name)
+
+
+@app.command("ls-class")
+def ls_class():
+    """List your classes with hours this week and in total."""
+    _list_classes()
+
+
+@app.command("ls-note")
+def ls_note():
+    """List this week's notes to self."""
+    _show_todos(week_start(date.today()))
+
+
 # ── misc ─────────────────────────────────────────────────────────────────────
 
-@app.command()
+@app.command(hidden=True)
 def undo(steps: int = typer.Argument(1, help="How many changes to undo.")):
     """Undo your last change (start/stop, notes, edits…)."""
     _load()
@@ -824,7 +939,7 @@ def undo(steps: int = typer.Argument(1, help="How many changes to undo.")):
         ui.ok(f"Undid: {label}")
 
 
-@app.command()
+@app.command(hidden=True)
 def redo(steps: int = typer.Argument(1, help="How many changes to redo.")):
     """Redo a change you just undid."""
     _load()
@@ -837,7 +952,7 @@ def redo(steps: int = typer.Argument(1, help="How many changes to redo.")):
         ui.ok(f"Redid: {label}")
 
 
-@app.command("cycle-theme")
+@app.command("cycle-theme", hidden=True)
 def cycle_theme():
     """Switch to the next color theme."""
     _, cfg = _load()
@@ -851,7 +966,7 @@ def cycle_theme():
                                    (f"   ({names.index(nxt) + 1}/{len(names)})", ui.T.dim)))
 
 
-@app.command()
+@app.command(hidden=True)
 def config(
     edit_: bool = typer.Option(False, "--edit", "-e", help="Open the config in $EDITOR."),
     path: bool = typer.Option(False, "--path", help="Just print where the files live."),

@@ -46,33 +46,22 @@ LEONIDA = Theme(
 
 # every shortcut, for the F1 sheet (the footer only shows the first few)
 SHORTCUTS = [
-    ("prompt bar", "(bottom)"),
-    ("  in [class]", "start studying, optionally naming the class"),
-    ("  out", "stop: review, add anything missing, save"),
-    ("  todo [text]", "add a to-do for this week (no text: open the list)"),
+    ("bottom bar", "(same words as the shell)"),
+    ("  start [class]", "start a block (no class: pick one)"),
+    ("  stop", "stop the block"),
+    ("  add details …", "details for the block you're in"),
+    ("  add note …", "a note to self for this week"),
+    ("  add block", "log a past block you forgot"),
+    ("  create class …", "a new class"),
     ("  undo / redo", "take back your last change (or put it back)"),
-    ("  /vday [day]", "view a day           /vday yesterday"),
-    ("  /vweek [week]", "view the week's times  /vweek last"),
-    ("  /todo", "the week's to-dos (notes to self)"),
-    ("  /classes", "add or remove your classes"),
-    ("  /weeks", "calendar of weeks: ↑↓ pick · enter open"),
-    ("  /config", "color theme"),
+    ("  /day /week /notes /classes /config", "views and settings"),
     ("", ""),
-    ("tab", "switch between the prompt bar and the top section"),
-    ("arrows (top section)", "move between your session notes, today, week and to-do"),
-    ("  in the note list", "f2 rename · delete remove · esc back"),
-    ("enter (on a panel)", "open today / the week / the to-do list"),
-    ("ctrl+s", "start / stop studying"),
+    ("tab", "switch between the bottom bar and the top section"),
+    ("arrows", "move between details, notes, today and week"),
+    ("enter (on a panel)", "open it"),
+    ("ctrl+s", "start / stop"),
     ("ctrl+z · ctrl+y", "undo · redo"),
-    ("ctrl+n", "jump to the notes box"),
-    ("ctrl+p", "command palette: everything else"),
-    ("ctrl+t", "fix the last session's times"),
-    ("ctrl+l", "week log"),
-    ("ctrl+b", "toggle the side panels"),
     ("ctrl+q", "quit"),
-    ("", ""),
-    ("in the week log", "enter edit · ctrl+n new session · delete remove · [ ] switch weeks · esc back"),
-    ("stopping", "enter adds a line · empty enter or ctrl+s saves · esc keeps you studying"),
 ]
 
 
@@ -103,7 +92,7 @@ def _notes_view(store: Store, monday: date, rows: int = 8):
     open_ = [t for t in mine if not t.done] + older
     done = [t for t in mine if t.done]
     if not open_ and not done:
-        return Text.assemble(("nothing yet · type ", ui.T.dim), ("todo read ch 7", f"bold {ui.T.accent}"),
+        return Text.assemble(("nothing yet · type ", ui.T.dim), ("add note read ch 7", f"bold {ui.T.accent}"),
                              (" below", ui.T.dim))
     lines = []
     for t in open_[:rows]:
@@ -701,16 +690,13 @@ def read_heartbeat() -> dict | None:
 # ── prompt bar ───────────────────────────────────────────────────────────────
 
 SLASH = [
-    ("/vday", "view a day's sessions", "/vday yesterday"),
-    ("/vweek", "view the week's times", "/vweek last"),
-    ("/todo", "the week's to-dos: add, check off", ""),
-    ("/classes", "add or remove your classes", ""),
-    ("/weeks", "pick any week on a calendar", ""),
+    ("/day", "a day's blocks", "/day yesterday"),
+    ("/week", "the week, by day and class", "/week last"),
+    ("/notes", "notes to self: add, check off", ""),
+    ("/classes", "your classes", ""),
     ("/config", "color theme", ""),
-    ("/help", "commands and shortcuts", ""),
+    ("/help", "every key", ""),
 ]
-WORDS = [("in", "start studying", "in linear algebra"), ("out", "stop", ""),
-         ("todo", "add a to-do for this week", "todo finish problem set 4")]
 
 
 class CommandInput(Input):
@@ -1176,10 +1162,10 @@ class TodoScreen(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog") as v:
-            v.border_title = "to-do"
+            v.border_title = "notes"
             yield Static(id="todohead")
             yield OptionList(id="todolist")
-            yield Label("add a to-do  (start with a class to tag it: la problem set 4)", classes="field")
+            yield Label("add a note", classes="field")
             yield Input(id="newtodo", placeholder="e.g. finish problem set 4, then enter")
             yield Static(id="error")
             yield Static(Text.assemble(("enter", "bold"), " adds · ", ("tab", "bold"), " to the list: ",
@@ -1195,7 +1181,7 @@ class TodoScreen(ModalScreen[bool]):
         store = Store.load()
         mine, older = store.todos_for(self.monday)
         self.query_one("#dialog").border_title = (
-            f"to-do · week {fmt_md(self.monday)} – {fmt_md(self.monday + timedelta(days=6))}")
+            f"notes · week {fmt_md(self.monday)} – {fmt_md(self.monday + timedelta(days=6))}")
         ol = self.query_one("#todolist", OptionList)
         keep = ol.highlighted
         ol.clear_options()
@@ -1210,7 +1196,7 @@ class TodoScreen(ModalScreen[bool]):
             ol.highlighted = min(keep or 0, ol.option_count - 1)
         summary = ui.todo_summary(store, self.monday)
         self.query_one("#todohead", Static).update(
-            summary if summary.plain else Text("Nothing to do yet. Notes to self go here: no reminders.", style=ui.T.dim))
+            summary if summary.plain else Text("No notes yet. Notes to self go here: no reminders.", style=ui.T.dim))
 
     def _selected(self):
         ol = self.query_one("#todolist", OptionList)
@@ -1265,6 +1251,46 @@ class TodoScreen(ModalScreen[bool]):
         self.dismiss(True)
 
 
+class ClassPicker(ModalScreen[str | None]):
+    """Which class is this block for? ↑↓ + enter picks one, or type a new name."""
+
+    BINDINGS = [Binding("escape", "cancel", "cancel")]
+
+    def compose(self) -> ComposeResult:
+        classes = Store.load().classes
+        with Vertical(id="dialog") as v:
+            v.border_title = "which class?"
+            if classes:
+                yield OptionList(*[Option(Text(c, style=f"bold {ui.T.text}"), id=c) for c in classes], id="picklist")
+                yield Label("or a new class", classes="field")
+            else:
+                yield Static(Text("You don't have any classes yet. Name your first one:", style=ui.T.text))
+            yield Input(id="pickname", placeholder="e.g. Statics, then enter")
+            yield Static(Text.assemble(("enter", "bold"), " start · ", ("tab", "bold"), " switch · ",
+                                       ("esc", "bold"), " cancel", style=ui.T.muted), id="hint")
+
+    def on_mount(self) -> None:
+        lists = self.query("#picklist")
+        (lists.first() if lists else self.query_one("#pickname")).focus()
+
+    @on(OptionList.OptionSelected, "#picklist")
+    def _picked(self, ev: OptionList.OptionSelected) -> None:
+        self.dismiss(ev.option.id)
+
+    @on(Input.Submitted, "#pickname")
+    def _named(self, ev: Input.Submitted) -> None:
+        name = ev.value.strip()
+        if not name:
+            return
+        store = Store.load()
+        name = store.add_class(name)
+        store.save()
+        self.dismiss(name)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class ObPage(Static, can_focus=True):
     """A setup page with nothing to type: enter moves on."""
 
@@ -1302,8 +1328,8 @@ class OnboardingScreen(ModalScreen[bool]):
                     (" and ", ui.T.muted), ("/config", f"bold {ui.T.text}"), (".", ui.T.muted)))
             with Vertical(id="ob-classes", classes="ob-step"):
                 yield Static(Text.assemble(
-                    ("Add each class you study for. Then ", ui.T.text), ("in linear algebra", f"bold {ui.T.accent}"),
-                    (" (or just ", ui.T.text), ("in la", f"bold {ui.T.accent}"), (") logs time for it.\n", ui.T.text)))
+                    ("Add each class you study for. Then ", ui.T.text), ("start statics", f"bold {ui.T.accent}"),
+                    (" logs time for it.\n", ui.T.text)))
                 yield Label("class name  (enter adds it; empty enter when you're done)", classes="field")
                 yield Input(id="ob-class", placeholder="e.g. Linear Algebra")
                 yield Static(id="ob-classlist")
@@ -1321,15 +1347,13 @@ class OnboardingScreen(ModalScreen[bool]):
         t.add_column(style=f"bold {ui.T.accent}", no_wrap=True)
         t.add_column(style=ui.T.text)
         for k, v in [
-            ("in", "type it in the bar at the bottom to start studying"),
-            ("notes", "list what you're covering as you go; it becomes the log"),
-            ("out", "stop: review the session and save it"),
+            ("start", "type it in the bar at the bottom (add a class: start statics)"),
+            ("details", "type what you're covering as you go"),
+            ("stop", "ends the block"),
+            ("add note …", "a note to self for this week"),
             ("tab", "switch between the bottom bar and the top section"),
-            ("arrows", "move between your notes, today and the week"),
-            ("/todo", "notes to self for the week"),
-            ("/", "views: a day, the week, any past week"),
-            ("ctrl+p", "command palette: everything else"),
-            ("f1", "every shortcut"),
+            ("/", "views: a day, the week, notes, classes"),
+            ("f1", "every key"),
         ]:
             t.add_row(k, v)
         return Group(Text("The basics:\n", style=f"bold {ui.T.text}"), t)
@@ -1541,7 +1565,7 @@ class MainScreen(Screen):
             with Vertical(id="left"):
                 with Vertical(id="now"):
                     yield Static(id="clock")
-                    yield Label("this session", id="items-label", classes="section")
+                    yield Label("details", id="items-label", classes="section")
                     yield ItemList(id="items")
                     yield ItemInput(id="new")
                 yield FocusPanel(id="notes")
@@ -1551,7 +1575,7 @@ class MainScreen(Screen):
         yield OptionList(id="slash")
         with Horizontal(id="prompt"):
             yield Static("❯", id="caret")
-            yield CommandInput(id="cmd", placeholder="in · out · undo · / for views and config")
+            yield CommandInput(id="cmd", placeholder="start · stop · add details … · add note … · / for more")
         yield Static(id="status")
         yield Footer()
 
@@ -1568,7 +1592,7 @@ class MainScreen(Screen):
         self.set_interval(0.12, self._mascot_tick)
         self.query_one("#slash", OptionList).can_focus = False
         self.query_one("#today").border_title = "today"
-        self.query_one("#notes").border_title = "to-do · notes to self"
+        self.query_one("#notes").border_title = "notes"
         self.reload()
         self.set_interval(1, self._tick)
         self.query_one("#cmd", Input).focus()
@@ -1581,7 +1605,7 @@ class MainScreen(Screen):
         def done(_ok: bool | None) -> None:
             self.app.reload_config()
             self.query_one("#cmd", Input).focus()
-            self.app.notify("Type [b]in[/b] below to start studying.", title="all set")
+            self.app.notify("Type [b]start[/b] below to begin.", title="all set")
         self.app.push_screen(OnboardingScreen(self.cfg), done)
 
     def on_resize(self) -> None:
@@ -1666,7 +1690,7 @@ class MainScreen(Screen):
             meta = Text.assemble((run.course or "no class", f"bold {ui.T.accent}" if run.course else ui.T.dim),
                                  ("  ·  since ", ui.T.dim), (fmt_time(run.start), f"bold {ui.T.text}"))
             nowbox.border_title = run.course or "now"
-            new.placeholder = "+ what are you covering?  enter to add"
+            new.placeholder = "+ add details, enter to save"
             new.disabled = False
             notes = tuple(run.notes)
         else:
@@ -1680,7 +1704,7 @@ class MainScreen(Screen):
             label = Text("studied today", style=ui.T.muted)
             meta = Text("")
             nowbox.border_title = "cram"
-            new.placeholder = "start studying first: type in below"
+            new.placeholder = "type start below to begin"
             notes = ()
         if side_hidden:
             wk_min = sum(s.minutes() for s in store.in_week(week_start(date.today())))
@@ -1740,7 +1764,7 @@ class MainScreen(Screen):
         elif run:
             left.append("● studying  ", style=f"bold {ui.T.ok}")
             left.append(f"since {fmt_time(run.start)}", style=ui.T.muted)
-            left.append("  ·  everything saved" + ("  (out to finish the session)" if wide else ""), style=ui.T.dim)
+            left.append("  ·  everything saved" + ("  (stop to finish)" if wide else ""), style=ui.T.dim)
         else:
             left.append("✓ saved  ", style=f"bold {ui.T.ok}")
             left.append("week log is up to date", style=ui.T.dim)
@@ -1802,8 +1826,11 @@ class MainScreen(Screen):
     def _start(self, text: str) -> None:
         """'in linear algebra ch 5' -> a session for that class with 'ch 5' as its first note."""
         store = Store.load()
+        if not text:
+            self._pick_then_begin()
+            return
         course, rest = store.match_class(text)
-        if course or not text:
+        if course:
             self._begin(course, rest)
             return
         first = text.split()[0].lower()
@@ -1820,8 +1847,11 @@ class MainScreen(Screen):
                 st.save()
                 self._begin(name, "")
             else:
-                self._begin(None, text)
-        self.app.push_screen(Confirm(f"'{text}' isn't one of your classes. Add it as a class?"), answered)
+                self._pick_then_begin()
+        self.app.push_screen(Confirm(f"'{text}' isn't one of your classes. Create it?"), answered)
+
+    def _pick_then_begin(self) -> None:
+        self.app.push_screen(ClassPicker(), lambda name: self._begin(name, "") if name else None)
 
     def _begin(self, course: str | None, text: str) -> None:
         store = Store.load()
@@ -1842,6 +1872,7 @@ class MainScreen(Screen):
         self.query_one("#new", Input).focus()
 
     def _punch_out(self, end: datetime | None = None, then=None) -> None:
+        """Stop the block right away (anything typed in the details box goes in first)."""
         store = Store.load()
         run = store.running()
         if not run:
@@ -1851,19 +1882,15 @@ class MainScreen(Screen):
         if inp.value.strip():
             run.notes.append(inp.value.strip())
             inp.value = ""
-            store.save()
-
-        def done(saved: bool | None) -> None:
-            if saved:
-                s = Store.load().get(run.id)
-                self.app.notify(f"{fmt_range(s.start, s.end)} · {fmt_hm(s.minutes())}", title="✓ session saved")
-                if then:
-                    then()
-                    return
-            self.reload()
-            self.query_one("#cmd", Input).focus()
-
-        self.app.push_screen(BlockEditor(run, "out", end=end), done)
+        run.end = max(end or now(), run.start + timedelta(minutes=1))
+        store.save()
+        self.app.notify(f"{run.course or 'Block'} · {fmt_range(run.start, run.end)} · {fmt_hm(run.minutes())}",
+                        title="✓ stopped")
+        if then:
+            then()
+            return
+        self.reload()
+        self.query_one("#cmd", Input).focus()
 
     # ── prompt bar ──
     @on(Input.Changed, "#cmd")
@@ -1904,33 +1931,50 @@ class MainScreen(Screen):
             menu.display = False
             self.slash(cmd.lower(), arg.strip())
             return
-        word, _, rest = text.partition(" ")
-        word = word.lower()
-        if word == "in":
+        words = text.split()
+        w0, w1 = words[0].lower(), (words[1].lower() if len(words) > 1 else "")
+        if w0 in ("start", "in"):
             if self.running:
-                self.app.notify("Already studying.")
+                self.app.notify("Already studying. Type [b]stop[/b] first.")
             else:
-                self._start(rest.strip())
-        elif word == "out":
+                self._start(" ".join(words[1:]))
+        elif w0 in ("stop", "out"):
             self._punch_out()
-        elif word in ("todo", "todos", "class", "classes") or (
-                word == "add" and rest.split(" ", 1)[0].lower() in ("todo", "todos", "class", "classes")):
-            # "todo finish ps4", "todo add finish ps4" and the swapped "add todo finish ps4" all work
-            if word == "add":
-                word, _, rest = rest.partition(" ")
-                word = word.lower()
-            rest = rest.strip()
-            if rest.lower().startswith("add "):
-                rest = rest[4:].strip()
-            self._add_from_bar("todo" if word.startswith("todo") else "class", rest)
-        elif word in ("undo", "redo"):
-            n = int(rest) if rest.strip().isdigit() else 1
+        elif w0 == "add" and w1 in ("details", "detail"):
+            self._add_details(" ".join(words[2:]))
+        elif w0 == "add" and w1 in ("note", "notes", "todo"):
+            self._add_from_bar("todo", " ".join(words[2:]))
+        elif w0 == "add" and w1 == "block":
+            self.app.push_screen(BlockEditor(None, "add"), lambda ok: self.reload())
+        elif (w0 == "create" or w0 == "add") and w1 == "class":
+            self._add_from_bar("class", " ".join(words[2:]))
+        elif w0 in ("note", "todo"):
+            self._add_from_bar("todo", " ".join(words[1:]))
+        elif w0 in ("ls-note", "notes"):
+            self.action_todo()
+        elif w0 in ("ls-class", "classes"):
+            self.action_classes()
+        elif w0 in ("undo", "redo"):
+            n = int(w1) if w1.isdigit() else 1
             for _ in range(n):
-                getattr(self.app, f"action_{word}")()
+                getattr(self.app, f"action_{w0}")()
         else:
             event.input.value = text
-            self.app.notify("Commands are [b]in[/b], [b]out[/b], [b]todo …[/b], [b]undo[/b], [b]redo[/b] or [b]/…[/b]. "
-                            "Notes go in the notes box ([b]tab[/b]).", severity="warning")
+            self.app.notify("Try [b]start[/b], [b]stop[/b], [b]add details …[/b], [b]add note …[/b] or [b]/[/b] for more.",
+                            severity="warning")
+
+    def _add_details(self, text: str) -> None:
+        store = Store.load()
+        run = store.running()
+        if not run:
+            self.app.notify("You're not studying right now. Type [b]start[/b] first.", severity="warning")
+            return
+        if not text:
+            self.query_one("#new", Input).focus()
+            return
+        run.notes.append(text)
+        store.save()
+        self.reload()
 
     def _add_from_bar(self, group: str, text: str) -> None:
         if not text:
@@ -1939,11 +1983,11 @@ class MainScreen(Screen):
         store = Store.load()
         if group == "todo":
             t = store.add_todo(text, week_start(date.today()))
-            msg = (f"{t.course}: " if t.course else "") + t.text
-            title = "✓ to-do added"
+            msg = t.text
+            title = "✓ note added"
         else:
             msg = ", ".join(store.add_class(p) for p in text.split(",") if p.strip())
-            title = "✓ class added"
+            title = "✓ class created"
         store.save()
         self.app.notify(msg, title=title)
         self.reload()
@@ -1951,9 +1995,9 @@ class MainScreen(Screen):
     def slash(self, cmd: str, arg: str) -> None:
         cmd = cmd.lower()
         try:
-            if cmd == "/vday":
+            if cmd in ("/day", "/vday"):
                 self.app.push_screen(DayScreen(parse_date(arg) if arg else date.today()))
-            elif cmd == "/vweek":
+            elif cmd in ("/week", "/vweek"):
                 self.app.push_screen(LogScreen(parse_week(arg or None)))
             elif cmd == "/weeks":
                 self.app.push_screen(WeekPicker())
@@ -1961,7 +2005,7 @@ class MainScreen(Screen):
                 self.action_config()
             elif cmd == "/classes":
                 self.action_classes()
-            elif cmd == "/todo":
+            elif cmd in ("/notes", "/todo"):
                 self.action_todo()
             elif cmd == "/help":
                 self.action_keys()
@@ -1980,15 +2024,17 @@ class MainScreen(Screen):
         text = event.value.strip()
         if not text:
             return
-        if text.lower() in ("out", "in"):  # a command typed in the wrong box: just do it
+        first, _, rest = text.partition(" ")
+        if text.lower() in ("out", "stop"):          # a command typed in the wrong box: just do it
             event.input.value = ""
-            if text.lower() == "out":
-                self._punch_out()
-            elif not self.running:
-                self._start("")
+            self._punch_out()
+            return
+        if first.lower() in ("in", "start") and not self.running:
+            event.input.value = ""
+            self._start(rest.strip())
             return
         if not self.running:
-            self.app.notify("Start studying first: type [b]in[/b] in the prompt bar (your text is kept).")
+            self.app.notify("Start first: type [b]start[/b] in the bottom bar (your text is kept).")
             self.query_one("#cmd", Input).focus()
             return
         event.input.value = ""
@@ -2157,7 +2203,7 @@ class CramApp(App):
     #cmd { border: none; height: 1; padding: 0; background: transparent; }
     #status { height: 1; padding: 0 3; }
 
-    BlockEditor, Confirm, KeysSheet, ConfigScreen, ClassesScreen, TodoScreen, RecoverScreen, QuitScreen, ConflictScreen, OnboardingScreen {
+    BlockEditor, Confirm, KeysSheet, ConfigScreen, ClassesScreen, TodoScreen, ClassPicker, RecoverScreen, QuitScreen, ConflictScreen, OnboardingScreen {
         align: center middle; background: $background 60%;
     }
     #dialog {
@@ -2178,6 +2224,10 @@ class CramApp(App):
     .field { color: $text-muted; margin-top: 1; }
     #quitopts { height: auto; margin-top: 1; background: transparent; border: none; }
     #quitopts > .option-list--option-highlighted { background: $primary 35%; text-style: none; }
+    #picklist { height: auto; max-height: 14; background: transparent; border: round $foreground 20%; }
+    #picklist:focus { border: round $accent; }
+    #pickname { border: tall $foreground 20%; background: transparent; }
+    #pickname:focus { border: tall $accent; }
     #todolist { height: auto; max-height: 18; background: transparent; border: round $foreground 20%; }
     #todolist:focus { border: round $accent; }
     #newtodo { border: tall $foreground 20%; background: transparent; }
@@ -2188,7 +2238,8 @@ class CramApp(App):
     #newclass:focus, #ob-class:focus { border: tall $accent; }
     #themes { height: auto; background: transparent; border: round $foreground 20%; }
     #themes:focus { border: round $accent; }
-    #themes > .option-list--option-highlighted {
+    #themes > .option-list--option-highlighted, #picklist > .option-list--option-highlighted,
+    #classlist > .option-list--option-highlighted, #todolist > .option-list--option-highlighted {
         background: $primary 35%; text-style: none;
     }
     #error { height: auto; margin-top: 1; }

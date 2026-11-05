@@ -4,204 +4,81 @@ cram \- track your study hours from the terminal
 .SH SYNOPSIS
 .B cram
 .br
-.B cram
-.I command
-.RI [ options ]
-.RI [ arguments ]
+.B cram start
+.RI [ class ]
+.br
+.B cram stop
+.br
+.B cram add
+.BR details | note | block
+.RI [ text ]
+.br
+.B cram create class
+.I name
+.br
+.BR "cram ls\-class" " | " "cram ls\-note"
 .SH DESCRIPTION
 .B cram
-keeps a log of the time you study and what you covered in each session,
-with totals per day and per week.
-.PP
+logs study blocks: when you studied, for which class, and what you covered.
 Run
 .B cram
-on its own in a terminal to open the full-screen app.
-Every action is also available as a
-.B cram
-.I command
-for scripts and quick use from the shell.
-When output is not a terminal, plain
-.B cram
-prints the dashboard instead.
-.PP
-Everything is written to disk the moment it changes.
-Weeks run Monday to Sunday; a session that runs past midnight counts on the day it started.
-.SH THE APP
-Type into the prompt bar at the bottom:
-.TP
-.BR in " [\fIclass\fR] [\fInote\fR]"
-Start studying. The words after \fBin\fR are matched against your classes:
-the full name (\fBin linear algebra\fR), the start of it (\fBin linear\fR) or its initials (\fBin la\fR).
-Anything after the class becomes the first note. If nothing matches you are asked whether to add it as a class.
-.TP
-.B out
-Stop. Shows what you covered, asks "Did you do anything else not listed?",
-lets you adjust the day and times, then saves the session.
-.TP
-.BR undo " [\fIn\fR], " redo " [\fIn\fR]"
-Take back the last change (or put it back).
-.TP
-.BR /vday " [\fIday\fR]"
-View a day: its sessions, total and a timeline bar. Enter on a session edits it;
-the last row, \fB+ add a session\fR, adds one.
-.TP
-.BR /vweek " [\fIweek\fR]"
-View a week's sessions with a timeline per day.
-.TP
-.BR /weeks
-A calendar of all your weeks. Up/down picks one;
-Enter opens its log.
-.TP
-.B /todo
-The week's to-do list. Enter adds; on the list, Enter or Space checks one off and Delete removes it;
-\fB[\fR and \fB]\fR switch weeks. Unfinished to-dos from earlier weeks are listed too.
-.TP
-.B /classes
-Add or remove your classes, with hours this week and in total.
-.TP
-.B /config
-Color theme.
-.TP
-.B /help
-All commands and keys.
-.PP
-Typing \fB/\fR opens a menu of these; arrow keys pick one, Tab completes, Enter runs it.
-What you cover goes in the separate \fInotes\fR box.
-.PP
-If a session's times overlap another session you are offered to merge them, fit the new session
-into the free gap, shorten the other session, or replace it.
-.SS Keys
-.TP 18
-.B tab
-Switch between the prompt bar and the top section.
-.TP
-.B arrows
-In the top section, move between the notes box, its notes, the today panel
-and the week panel. Enter on a panel opens it.
-.TP
-.B ctrl+s
-Start studying / stop.
-.TP
-.B ctrl+n
-Jump to the notes box.
-.TP
-.BR ctrl+z ", " ctrl+y
-Undo, redo.
-.TP
-.B ctrl+p
-Command palette (past sessions, themes, ...).
-.TP
-.B ctrl+t
-Fix the last session's times.
-.TP
-.B ctrl+l
-Week log.
-.TP
-.B ctrl+b
-Show or hide the side panels.
-.TP
-.BR f2 ", " delete
-Rename or remove the selected note.
-.TP
-.B f1
-All shortcuts.
-.TP
-.B ctrl+q
-Quit. Always asks first; when you are studying you can stop or keep the session running.
+on its own for the full-screen app, which also has the day and week views, editing, notes and settings.
+Everything is saved the moment it changes.
 .SH COMMANDS
-Week arguments (\fB\-w\fR) accept \fBthis\fR, \fBlast\fR, \fB\-2\fR, or any date inside the week.
-Days accept \fBtoday\fR, \fByesterday\fR, weekday names, \fB10/14\fR, \fB10/14/26\fR or \fB2026\-10\-14\fR.
-Times accept \fB9\fR, \fB9am\fR, \fB9:30pm\fR, \fB930pm\fR, \fB21:30\fR, \fBnoon\fR and \fBmidnight\fR.
 .TP
-.BR in " [\fIclass\fR] [\fInote\fR...] [\fB\-\-at\fR \fItime\fR] [\fB\-c\fR \fIclass\fR]"
-Start studying. The class is matched the same way as in the app; \fB\-c\fR names it explicitly.
-An ambiguous short name (\fBchem\fR for both Chemistry and Chem Lab) is refused.
+.BR start " [\fIclass\fR [\fIdetails\fR...]] [\fB\-\-at\fR \fItime\fR]"
+Start a block. The class can be shortened (\fBstat\fR for Statics). With no class, cram asks which one,
+or for a new class name if you have none. A name that isn't a class yet: cram offers to create it.
 .TP
-.BR out " [\fInote\fR...] [\fB\-\-at\fR \fItime\fR]"
-Stop studying. Without a note it shows the session and asks for anything missing.
+.BR stop " [\fB\-\-at\fR \fItime\fR]"
+Stop the current block.
 .TP
-.BR add " [\fItext\fR...]"
-Describe what you covered in the current session. Without text it asks for lines.
-When you're not studying, it asks whether to add to an earlier session, then lets you pick one from today or
-another day this week.
+.BI "add details " text
+Add details to the block you're in.
 .TP
-.BR edit " [\fB\-c\fR \fIclass\fR] [\fB\-\-date\fR] [\fB\-\-start\fR] [\fB\-\-end\fR] [\fB\-\-note\fR]... [\fB\-\-add\-note\fR]..."
-Change a session. Lets you pick one from today or another day this week, then choose to edit its time, what
-you covered, or its class, in place. A session from today keeps its date. If the new times overlap another session, it offers to
-merge them, fit this one into the gap, shorten the other, replace it, or change the times again.
+.BI "add note " text
+Add a note to self for this week. There are no reminders. Check notes off in the app.
 .TP
-.B v\-block
-Show the session you are in, or your most recent one.
+.B add block
+Log a past block you forgot to start. Asks the class, the day, the start and end times, and optional details.
 .TP
-.BR v\-today " [\fIday\fR]"
-Show a day's timeline and its sessions. Defaults to today.
+.BI "create class " name
+Create a class. Separate several with commas: \fBcram create class Statics, Calc III\fR.
 .TP
-.BR v\-week " [\fB\-w\fR \fIweek\fR]"
-Show hours per day, every session and the totals for a week.
+.B ls\-class
+Your classes, with hours this week, in total, and when you last studied each.
 .TP
-.BR status " [\fB\-W\fR] [\fB\-w\fR \fIweek\fR]"
-Studying or not, hours studied today, and the week; \fB\-W\fR keeps it live.
-.TP
-.BR class " [\fBadd\fR \fIname\fR[, \fIname\fR...] | \fBrm\fR \fIname\fR | \fBrename\fR \fIold\fR \fInew\fR]"
-Manage your classes. On its own (or as \fBcram classes\fR) it lists them with hours this week, in total,
-and when you last studied each. Removing a class keeps it on past sessions, so no hours are lost.
-.TP
-.BR todo " [\fBadd\fR \fItext\fR | \fBdone\fR \fIn\fR... | \fBuncheck\fR \fIn\fR... | \fBrm\fR \fIn\fR... | \fBclear\fR] [\fB\-w\fR \fIweek\fR]"
-Notes to self for a week, with no reminders. On its own it lists the week's to-dos with their numbers,
-plus any left unfinished in earlier weeks. A to-do that starts with a class (\fBchem read ch 7\fR) is tagged
-with it. \fBdone\fR checks one off, \fBuncheck\fR un-checks it, \fBrm\fR deletes it, and \fBclear\fR deletes
-the week's checked-off ones.
-.TP
-.BR weeks " [\fB\-n\fR \fIcount\fR]"
-Recent weeks with hours studied and days studied.
-.TP
-.BR undo " [\fIn\fR], " redo " [\fIn\fR]"
-Undo or redo changes. The last 100 are kept.
-.TP
-.BR config " [\fB\-e\fR] [\fB\-\-path\fR]"
-Show the config, open it in \fB$VISUAL\fR/\fB$EDITOR\fR, or print where files live.
-.TP
-.B cycle\-theme
-Switch to the next color theme.
+.B ls\-note
+This week's notes, plus any left open from earlier weeks.
+.PP
+Times accept \fB9\fR, \fB9am\fR, \fB9:30pm\fR, \fB21:30\fR, \fBnoon\fR; days accept \fBtoday\fR,
+\fByesterday\fR, weekday names, \fB10/14\fR and \fB2026\-10\-14\fR.
+.SH THE APP
+The bottom bar takes the same words as the shell: \fBstart\fR [\fIclass\fR], \fBstop\fR,
+\fBadd details\fR, \fBadd note\fR, \fBadd block\fR, \fBcreate class\fR, plus \fBundo\fR and \fBredo\fR.
+Type \fB/\fR for views: \fB/day\fR, \fB/week\fR, \fB/notes\fR, \fB/classes\fR, \fB/config\fR.
+\fBtab\fR moves between the bottom bar and the panels; arrow keys move between panels and \fBenter\fR opens one.
+\fBctrl+s\fR starts or stops, \fBctrl+z\fR undoes, \fBf1\fR lists every key, \fBctrl+q\fR quits.
 .SH TAB COMPLETION
-Run \fBcram \-\-install\-completion\fR once (bash, zsh or fish) and open a new terminal.
-Tab then completes commands, class names one word at a time, \fB\-c\fR class values,
-to-do numbers for \fBtodo done\fR, \fBuncheck\fR and \fBrm\fR, weeks for \fB\-w\fR, and days.
-.SH CONFIGURATION
-\fI~/.config/cram/config.toml\fR is created on first run. Sections:
-.TP
-.B [ui]
-theme (\fBcatppuccin\fR, \fBnord\fR, \fBgruvbox\fR, \fBtokyonight\fR, \fBrosepine\fR, \fBleonida\fR),
-banner and mascot (\fBtrue\fR/\fBfalse\fR).
+Run \fBcram \-\-install\-completion\fR once and open a new terminal. Tab then completes commands and class names.
 .SH FILES
 .TP
 .I ~/.config/cram/config.toml
 Theme, banner and mascot settings.
 .TP
 .I ~/.local/share/cram/data.json
-The log. \fIdata.json.bak\fR is the previous version; a damaged file is replaced by it automatically.
-.TP
-.I ~/.local/share/cram/undo/ ", " redo/
-Undo history.
-.TP
-.I ~/.local/share/cram/session.json
-Heartbeat used to notice that cram closed unexpectedly while you were studying.
+Your blocks, classes and notes. \fIdata.json.bak\fR is the previous version; a damaged file is replaced by it automatically.
 .SH ENVIRONMENT
 .TP
 .B CRAM_HOME
-Keep config, data and cache in this one folder instead (handy for testing).
-.TP
-.BR XDG_CONFIG_HOME ", " XDG_DATA_HOME ", " XDG_CACHE_HOME
-Respected when \fBCRAM_HOME\fR is not set.
-.SH EXIT STATUS
-0 on success, 1 when a command is refused (for example starting twice), 2 when an argument
-cannot be read (for example a time like \fB25pm\fR).
+Keep config and data in this one folder instead.
 .SH EXAMPLES
 .nf
-cram in linear algebra
-cram add "eigenvectors, ch. 5"
-cram out --at 5:15pm
-cram v-week -w last
+cram create class Statics, Calc III
+cram start statics
+cram add details "ch 5 problems"
+cram stop
+cram add note "read ch 7"
 .fi
 .SH SEE ALSO
 https://github.com/ricozama121803/cram

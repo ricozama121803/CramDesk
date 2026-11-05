@@ -32,18 +32,60 @@ def punched_in_earlier(minutes=30, notes=("working",)):
     st.save()
 
 
-def test_in_then_out_from_the_prompt_bar():
+def with_classes(*names):
+    st = Store.load()
+    for n in names:
+        st.add_class(n)
+    st.save()
+
+
+def test_start_and_stop_from_the_bar():
+    with_classes("Statics", "Calc III")
     async def script(app, pilot):
-        await type_(pilot, "in fixing the scraper")
-        await pilot.press("n"); await pilot.pause()         # not a class: keep it as a note
-        assert Store.load().running().notes == ["fixing the scraper"]
-        assert app.focused.id == "new"                      # cursor jumps to the working-on box
-        await type_(pilot, "checked aws")
-        await type_(pilot, "out")                           # typed in the wrong box: still punches out
-        assert isinstance(app.screen, BlockEditor)
-        await pilot.press("enter"); await pilot.pause()     # empty enter saves
-        assert Store.load().running() is None
-        assert Store.load().sessions[0].notes == ["fixing the scraper", "checked aws"]
+        await type_(pilot, "start stat review slides")
+        run_ = Store.load().running()
+        assert run_.course == "Statics" and run_.notes == ["review slides"]
+        assert app.focused.id == "new"                      # cursor jumps to the details box
+        await type_(pilot, "ch 5 problems")
+        await type_(pilot, "stop")                          # typed in the details box: still stops
+        assert Store.load().running() is None                # right away, no dialog
+        assert Store.load().sessions[0].notes == ["review slides", "ch 5 problems"]
+    run(script)
+
+
+def test_start_without_a_class_asks_which():
+    from cram.tui import ClassPicker
+    with_classes("Statics", "Calc III")
+    async def script(app, pilot):
+        await type_(pilot, "start")
+        assert isinstance(app.screen, ClassPicker)
+        await pilot.press("down", "enter"); await pilot.pause()
+        assert Store.load().running().course == "Calc III"
+    run(script)
+
+
+def test_start_with_no_classes_yet_names_the_first_one():
+    from cram.tui import ClassPicker
+    async def script(app, pilot):
+        await pilot.press("ctrl+s"); await pilot.pause()
+        assert isinstance(app.screen, ClassPicker)
+        await type_(pilot, "Statics")
+        st = Store.load()
+        assert st.classes == ["Statics"] and st.running().course == "Statics"
+    run(script)
+
+
+def test_start_with_an_unknown_class_offers_to_create_it():
+    from cram.tui import ClassPicker
+    with_classes("Statics")
+    async def script(app, pilot):
+        await type_(pilot, "start biology")
+        await pilot.press("y"); await pilot.pause()
+        assert Store.load().running().course == "biology"
+        await type_(pilot, "stop")
+        await type_(pilot, "start chem")
+        await pilot.press("n"); await pilot.pause()         # don't create it: pick one instead
+        assert isinstance(app.screen, ClassPicker)
     run(script)
 
 
@@ -56,12 +98,13 @@ def test_random_text_in_the_prompt_bar_is_kept_not_lost():
 
 
 def test_item_typed_while_off_the_clock_is_not_thrown_away():
+    with_classes("Statics")
     async def script(app, pilot):
         app.main.query_one("#new").focus()
         await type_(pilot, "early idea")
         assert app.main.query_one("#new").value == "early idea"
-        assert app.focused.id == "cmd"                      # sent to the prompt bar to type `in`
-        await type_(pilot, "in")
+        assert app.focused.id == "cmd"                      # sent to the bottom bar to type `start`
+        await type_(pilot, "start statics")
         assert Store.load().running().notes == ["early idea"]   # carried into the block
     run(script)
 
@@ -131,27 +174,30 @@ def test_delete_on_the_plus_row_does_nothing():
 
 
 def test_end_time_in_the_future_is_refused():
-    punched_in_earlier(10)
+    st = Store.load()
+    st.add(datetime(2026, 10, 14, 9), datetime(2026, 10, 14, 10), ["a"])
+    st.save()
     async def script(app, pilot):
-        await type_(pilot, "out")
-        future = (now() + timedelta(hours=2)).strftime("%I:%M%p").lstrip("0").lower()
-        end = app.screen.query_one("#end"); end.value = future
+        app.push_screen(BlockEditor(Store.load().sessions[0], "edit")); await pilot.pause()
+        app.screen.query_one("#day").value = (now() + timedelta(days=2)).strftime("%m/%d/%y")
         await pilot.press("ctrl+s"); await pilot.pause()
         assert isinstance(app.screen, BlockEditor)
         assert "future" in str(app.screen.query_one("#error").render())
-        assert Store.load().running() is not None
+        assert Store.load().sessions[0].start == datetime(2026, 10, 14, 9)
     run(script)
 
 
 def test_undo_is_ignored_inside_a_dialog_and_works_outside():
+    from cram.tui import TodoScreen
+    with_classes("Statics")
     async def script(app, pilot):
-        await type_(pilot, "in first thing")
+        await type_(pilot, "start statics first thing")
         await type_(pilot, "second thing")
         await pilot.press("ctrl+z"); await pilot.pause()
         assert Store.load().running().notes == ["first thing"]
-        await pilot.press("ctrl+s"); await pilot.pause()              # punch-out dialog
-        await pilot.press("ctrl+z"); await pilot.pause()              # ignored in a dialog
-        assert isinstance(app.screen, BlockEditor) and Store.load().running() is not None
+        app.main.action_todo(); await pilot.pause()                   # a dialog
+        await pilot.press("ctrl+z"); await pilot.pause()              # ignored there
+        assert isinstance(app.screen, TodoScreen) and Store.load().running().notes == ["first thing"]
     run(script)
 
 
@@ -280,13 +326,6 @@ def test_every_theme_works_in_the_app():
     run(body)
 
 
-def with_classes(*names):
-    st = Store.load()
-    for n in names:
-        st.add_class(n)
-    st.save()
-
-
 def test_in_with_a_class_from_the_prompt_bar():
     with_classes("Linear Algebra", "Chemistry")
     async def script(app, pilot):
@@ -333,17 +372,16 @@ def test_classes_screen_adds_and_removes():
     run(script)
 
 
-def test_class_set_in_the_editor_when_stopping():
+def test_class_set_in_the_block_editor():
     with_classes("Linear Algebra", "Chemistry")
-    punched_in_earlier(notes=("reading",))
+    st = Store.load()
+    st.add(datetime(2026, 10, 14, 9), datetime(2026, 10, 14, 10), ["reading"])
+    st.save()
     async def script(app, pilot):
-        await type_(pilot, "out")
-        assert isinstance(app.screen, BlockEditor)
+        app.push_screen(BlockEditor(Store.load().sessions[0], "edit")); await pilot.pause()
         app.screen.query_one("#course").focus(); await pilot.pause()
         await type_(pilot, "chemistry")
-        await pilot.press("enter"); await pilot.pause()     # empty enter on the notes box saves
-        s = Store.load().sessions[0]
-        assert s.end is not None and s.course == "Chemistry"
+        assert Store.load().sessions[0].course == "Chemistry"
     run(script)
 
 
@@ -358,11 +396,11 @@ def test_todo_screen_add_check_off_and_remove():
     async def script(app, pilot):
         await type_(pilot, "/todo")
         assert isinstance(app.screen, TodoScreen)
-        await type_(pilot, "la finish problem set 4")
+        await type_(pilot, "finish problem set 4")
         await type_(pilot, "email the TA")
         st = Store.load()
         t = next(t for t in st.todos if t.text == "finish problem set 4")
-        assert t.course == "Linear Algebra" and not t.done
+        assert t.course is None and not t.done                            # notes aren't tagged
         ol = app.screen.query_one("#todolist")
         ol.focus(); await pilot.pause()
         ol.highlighted = 0
@@ -378,24 +416,23 @@ def test_todo_screen_add_check_off_and_remove():
         await pilot.press("escape"); await pilot.pause()
         assert not isinstance(app.screen, TodoScreen)
         notes = app.main.query_one("#notes")
-        assert notes.border_subtitle == "to-dos 0/2 done"
+        assert notes.border_subtitle == "notes 0/2 done"
         shown = "".join(seg.text for line in notes.render_lines(notes.region.reset_offset) for seg in line)
         assert "finish problem set 4" in shown and "email the TA" in shown
     run(script)
 
 
-def test_prompt_bar_adds_todos_in_either_order():
+def test_bar_uses_the_same_words_as_the_shell():
+    with_classes("Statics")
     async def script(app, pilot):
-        punched_in_earlier(notes=())
-        for line in ("todo read ch 7", "todo add problem set 4", "add todo review statics notes"):
+        for line in ("start statics", "add details ch 5 problems", "add note read ch 7",
+                     "note problem set 4", "create class Calc III"):
             app.main.query_one("#cmd").focus()
             await type_(pilot, line)
         st = Store.load()
-        assert [t.text for t in st.todos] == ["read ch 7", "problem set 4", "review statics notes"]
-        assert st.running().notes == []                      # nothing slipped into the session
-        app.main.query_one("#cmd").focus()
-        await type_(pilot, "add class Statics")
-        assert Store.load().classes == ["Statics"]
+        assert st.running().notes == ["ch 5 problems"]
+        assert [t.text for t in st.todos] == ["read ch 7", "problem set 4"]
+        assert st.classes == ["Statics", "Calc III"]
     run(script)
 
 
