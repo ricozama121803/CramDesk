@@ -29,6 +29,7 @@ cram start statics             # start a block (no class given: it asks which)
 cram add details "ch 5 problems"   # details for the block you're in
 cram stop
 cram add block                 # log a past block you forgot (asks class, day, start, end)
+cram edit block                # pick a block from this week, then fix its times, details or class
 
 cram log statics "finished ch 5, moments still shaky"   # what you did (class optional while studying)
 cram ls-log [statics]          # one class's log, or every class's

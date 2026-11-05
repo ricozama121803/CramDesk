@@ -16,6 +16,8 @@ cram \- track your study hours from the terminal
 .BR details | memo | block
 .RI [ text ]
 .br
+.B cram edit block
+.br
 .B cram create class
 .I name
 .br
@@ -49,6 +51,13 @@ Put a memo on the memo board. Tag it with a class by starting it with the class 
 .TP
 .B add block
 Log a past block you forgot to start. Asks the class, the day, the start and end times, and optional details.
+.TP
+.BR "edit block" " [\fB\-\-date\fR \fIday\fR] [\fB\-\-start\fR \fItime\fR] [\fB\-\-end\fR \fItime\fR] [\fB\-\-details\fR \fItext\fR]... [\fB\-c\fR \fIclass\fR]"
+Pick a block from today or another day this week, then choose to edit its time, its details or its class.
+Each value is shown already typed in, ready to change; clear a line of details to remove it.
+A block from today keeps its date. If the new times overlap another block, cram offers to merge them,
+fit this one into the gap, shorten the other, replace it, or change the times again.
+Plain \fBcram edit\fR does the same.
 .TP
 .BI "create class " name
 Create a class. Separate several with commas: \fBcram create class Statics, Calc III\fR.

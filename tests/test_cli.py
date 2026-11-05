@@ -55,7 +55,7 @@ def test_clock_out_past_midnight_rolls_to_the_next_day():
 def test_edit_into_another_block_is_refused():
     block("10/14/26", 9, 10, "a")
     block("10/14/26", 11, 12, "b")
-    r = cram("edit", "2", "--start", "9:30am")
+    r = cram("edit", "block", "2", "--start", "9:30am")
     assert r.exit_code == 1 and "overlaps" in r.output
 
 
@@ -72,9 +72,10 @@ def _this_week_blocks():
 def test_edit_picks_a_block(monkeypatch):
     _this_week_blocks()
     monkeypatch.setattr(cli, "_tty", lambda: True)
-    r = cram("edit", "--note", "renamed", input="1\n1\n")
+    r = cram("edit", "block", "--details", "renamed", input="1\n1\n")
     assert r.exit_code == 0, r.output
     assert sorted(s.notes[0] for s in Store.load().sessions) == ["other thing", "renamed"]
+    assert "no class" in r.output                       # the picker shows each block's class
 
 
 def test_invoice_commands_are_gone():
@@ -133,8 +134,8 @@ def test_view_today_and_week():
 def test_edit_what_i_did_then_skip_the_time(monkeypatch):
     _this_week_blocks()
     monkeypatch.setattr(cli, "_tty", lambda: True)
-    # pick today's block, choose "what I did", rewrite the line, add one more, no to the time
-    r = cram("edit", input="1\n1\n2\ntoday thing, fixed\nextra\n\nn\n")
+    # pick today's block, choose "details", rewrite the line, add one more, no to the time
+    r = cram("edit", "block", input="1\n1\n2\ntoday thing, fixed\nextra\n\nn\n")
     assert r.exit_code == 0, r.output
     s = next(s for s in Store.load().sessions if s.day == date.today())
     assert s.notes == ["today thing, fixed", "extra"] and s.start.hour == 1 and s.end.hour == 2
@@ -143,7 +144,8 @@ def test_edit_what_i_did_then_skip_the_time(monkeypatch):
 def test_edit_time_then_what_i_did_too(monkeypatch):
     _this_week_blocks()
     monkeypatch.setattr(cli, "_tty", lambda: True)
-    # choose "time": (today, so no date) start 12:30am, keep the end; yes to editing what I did
+    # choose "time": (today, so no date) start 12:30am, keep the end; yes to editing the details
+    # (plain `cram edit` works the same as `cram edit block`)
     r = cram("edit", input="1\n1\n1\n12:30am\n\ny\nnew words\n\n")
     assert r.exit_code == 0, r.output
     s = next(s for s in Store.load().sessions if s.day == date.today())
@@ -159,7 +161,7 @@ def test_status_is_simple():
 
 
 def test_removed_commands_are_gone():
-    for name in ("log", "log-past", "bar", "rm", "note"):
+    for name in ("log-past", "bar", "rm", "note"):
         assert cram(name).exit_code == 2, name
 
 
@@ -181,7 +183,7 @@ def test_edit_today_skips_the_date_and_offers_to_fix_an_overlap(monkeypatch):
     monkeypatch.setattr(cli, "_tty", lambda: True)
     # pick today, block 1, edit time: (no date asked) start 1am, end 3:30am, no to notes,
     # then "Merge them" (option 1)
-    r = cram("edit", input="1\n1\n1\n1am\n3:30am\nn\n1\n")
+    r = cram("edit", "block", input="1\n1\n1\n1am\n3:30am\nn\n1\n")
     assert r.exit_code == 0, r.output
     assert "date ›" not in r.output
     assert "overlaps" in r.output
@@ -199,7 +201,7 @@ def test_edit_overlap_change_the_times_instead(monkeypatch):
     st.save()
     monkeypatch.setattr(cli, "_tty", lambda: True)
     # overlap, then pick "Change the times" (after merge/trim/shorten/replace) and give non-overlapping ones
-    r = cram("edit", input="1\n1\n1\n1am\n3:30am\nn\n" + "5\n" + "1am\n2:30am\n")
+    r = cram("edit", "block", input="1\n1\n1\n1am\n3:30am\nn\n" + "5\n" + "1am\n2:30am\n")
     assert r.exit_code == 0, r.output
     s = next(s for s in Store.load().sessions if s.notes == ["today thing"])
     assert s.end.hour == 2 and s.end.minute == 30
@@ -245,9 +247,9 @@ def test_class_option_and_edit_class():
     cram("in", "--at", "10/14/26 9am", "-c", "chem", "titration")
     cram("out", "--at", "10/14/26 10am", "x")
     assert Store.load().sessions[0].course == "Chemistry"
-    assert cram("edit", "1", "-c", "la").exit_code == 0
+    assert cram("edit", "block", "1", "-c", "la").exit_code == 0
     assert Store.load().sessions[0].course == "Linear Algebra"
-    assert cram("edit", "1", "-c", "none").exit_code == 0
+    assert cram("edit", "block", "1", "-c", "none").exit_code == 0
     assert Store.load().sessions[0].course is None
 
 
@@ -304,8 +306,9 @@ def complete(line):
 
 def test_tab_completes_commands_and_class_names_word_by_word():
     cram("class", "add", "Linear Algebra, Linear Programming, Chemistry")
-    assert set(complete("cram ")) == {"start", "stop", "log", "add", "create", "ls-class", "ls-log", "ls-memo"}
+    assert set(complete("cram ")) == {"start", "stop", "log", "add", "edit", "create", "ls-class", "ls-log", "ls-memo"}
     assert set(complete("cram add ")) == {"details", "memo", "block"}
+    assert complete("cram edit ") == ["block"]
     assert complete("cram log lin") == ["linear"]
     assert complete("cram start lin") == ["linear"]
     assert complete("cram in lin") == ["linear"]
@@ -462,7 +465,7 @@ def test_old_commands_still_work_but_are_hidden():
     assert cram("out", "--at", "10/14/26 10am", "x").exit_code == 0
     r = cram("--help")
     listed = r.output[r.output.index("Commands"):]
-    for old in ("│ in ", "│ out ", "│ v-week", "│ todo", "│ class ", "│ cycle-theme", "│ edit", "│ undo"):
+    for old in ("│ in ", "│ out ", "│ v-week", "│ todo", "│ class ", "│ cycle-theme", "│ undo"):
         assert old not in listed, old
 
 

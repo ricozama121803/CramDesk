@@ -159,15 +159,28 @@ def _ask_notes(prompt: str = "What did you cover?") -> list[str]:
     ui.console.print(Text(f"  {prompt}", style=f"bold {ui.T.accent}"),
                      Text("(one per line, empty line to finish)", style=ui.T.dim))
     notes = []
+    caret = Text("  › ", style=ui.T.accent)
     while True:
         try:
-            line = ui.console.input(Text("  › ", style=ui.T.accent)).strip()
+            line = (input(_readline_prompt(caret)) if sys.stdin.isatty() else ui.console.input(caret)).strip()
         except EOFError:
             break
         if not line:
             break
         notes.append(line)
     return notes
+
+
+def _readline_prompt(text: Text) -> str:
+    """The prompt as a string readline can measure.
+
+    The prompt has to go to input() itself, not be printed before it: otherwise readline thinks
+    the line starts at column 0, and backspace or arrow keys redraw the text over the label.
+    Color codes take no space on screen, so they're wrapped in \\x01 … \\x02 for readline to skip."""
+    import re
+    with ui.console.capture() as cap:
+        ui.console.print(text, end="")
+    return re.sub(r"(\x1b\[[0-9;]*m)", "\x01\\1\x02", cap.get())
 
 
 def _prefilled(label: str, value: str) -> str:
@@ -178,8 +191,11 @@ def _prefilled(label: str, value: str) -> str:
         readline = None
     if readline:
         readline.set_startup_hook(lambda: readline.insert_text(value))
+    prompt = Text.assemble((f"  {label:>8} ", ui.T.muted), ("› ", ui.T.accent))
     try:
-        return ui.console.input(Text.assemble((f"  {label:>8} ", ui.T.muted), ("› ", ui.T.accent))).strip()
+        if readline and sys.stdin.isatty():
+            return input(_readline_prompt(prompt)).strip()
+        return ui.console.input(prompt).strip()
     except EOFError:
         return value
     finally:
@@ -199,11 +215,11 @@ def _choose(prompt: str, labels: list[str], default: int | None = None) -> int:
 
 def _block_line(s: Session) -> str:
     what = f"   › {s.notes[0]}" + (f" (+{len(s.notes) - 1})" if len(s.notes) > 1 else "") if s.notes else ""
-    return f"{ui.block_label(s)}  {fmt_hm(s.minutes())}{what}"
+    return f"{ui.block_label(s)}  {fmt_hm(s.minutes())}  {s.course or 'no class'}{what}"
 
 
 def _pick_block(store: Store, ask_first: bool) -> Session:
-    """Let the user choose a session from today or another day this week."""
+    """Let the user choose a block from today or another day this week."""
     today = date.today()
     blocks = store.in_week(week_start(today))
     todays = [s for s in blocks if s.day == today]
@@ -212,10 +228,10 @@ def _pick_block(store: Store, ask_first: bool) -> Session:
     if not blocks:
         _fail(f"{off}Nothing logged this week. [b]cram start[/] to begin.")
     if not _tty():
-        _fail(f"{off}Run this in a terminal to pick a session.")
+        _fail(f"{off}Run this in a terminal to pick a block, or name it: [b]cram edit block 3 --end 5pm[/].")
     if ask_first:
         ui.info("You're not studying right now.")
-        if not Confirm.ask(Text("  Add it to an earlier session from today or this week?", style=f"bold {ui.T.text}"),
+        if not Confirm.ask(Text("  Add it to an earlier block from today or this week?", style=f"bold {ui.T.text}"),
                            default=True):
             ui.info("Nothing added.")
             raise typer.Exit()
@@ -223,8 +239,8 @@ def _pick_block(store: Store, ask_first: bool) -> Session:
         pool = [todays, others][_choose("Which?", ["From today", "From another day this week"])]
     else:
         pool = todays or others
-        ui.info("Sessions from today:" if todays else "Nothing from today yet. Sessions from earlier this week:")
-    return pool[_choose("Which session?", [_block_line(s) for s in pool])]
+        ui.info("Blocks from today:" if todays else "Nothing from today yet. Blocks from earlier this week:")
+    return pool[_choose("Which block?", [_block_line(s) for s in pool])]
 
 
 def _ambiguous(store: Store, text: str) -> list[str]:
@@ -325,25 +341,37 @@ def clock_out(
     ui.console.print(Text("  ") + ui.totals_line(r))
 
 
-@app.command(hidden=True)
+edit_app = typer.Typer(help="Edit a [b]block[/]: its day, times, details or class.", rich_markup_mode="rich",
+                       invoke_without_command=True, no_args_is_help=False)
+app.add_typer(edit_app, name="edit")
+
+
+@edit_app.callback()
+def _edit_root(ctx: typer.Context):
+    if ctx.invoked_subcommand is None:     # plain `cram edit` does the same as `cram edit block`
+        edit(id=None, day=None, start=None, end=None, notes=None, add_note=None, course=None)
+
+
+@edit_app.command("block")
 def edit(
     id: Optional[int] = typer.Argument(None, hidden=True, autocompletion=_complete_session_id),
     day: Optional[str] = typer.Option(None, "--date", "-d", help="Move to another date.", autocompletion=_complete_day),
     start: Optional[str] = typer.Option(None, "--start", "-s", help="New start time."),
     end: Optional[str] = typer.Option(None, "--end", "-e", help="New end time."),
-    notes: Optional[list[str]] = typer.Option(None, "--note", "-n", help="Replace notes (repeat for several lines)."),
-    add_note: Optional[list[str]] = typer.Option(None, "--add-note", "-a", help="Append a note line."),
+    notes: Optional[list[str]] = typer.Option(None, "--details", "--note", "-n",
+                                              help="Replace the details (repeat for several lines)."),
+    add_note: Optional[list[str]] = typer.Option(None, "--add-details", "--add-note", "-a", help="Add a line of details."),
     course: Optional[str] = typer.Option(None, "--class", "-c", help="Change the class ('none' clears it).",
                                           autocompletion=_complete_class_option),
 ):
-    """Edit a session: its date, times and what you covered. Asks which session from today or this week."""
+    """Edit a block: pick one from today or this week, then change its times, details or class in place."""
     store, _ = _load()
     if id is None:
         s = _pick_block(store, ask_first=False)
     else:
         s = store.get(id)
         if not s:
-            _fail(f"No session #{id}.")
+            _fail(f"No block #{id}.")
 
     interactive = not any([day, start, end, notes, add_note]) and course is None and _tty()
     new_class = s.course if course is None else _class_arg(store, course)
@@ -357,13 +385,13 @@ def edit(
         return d, st, en
 
     if interactive:
-        ui.console.print(ui.session_card(s, "editing", notes_label="what I covered"))
-        parts = ["time", "what I covered"]
-        pick = _choose("What do you want to edit?", ["Time", "What I covered", "Class"])
+        ui.console.print(ui.session_card(s, "editing", notes_label="details"))
+        parts = ["time", "details"]
+        pick = _choose("What do you want to edit?", ["Time", "Details", "Class"])
         if pick == 2:
             s.course = _pick_class(store, s.course)
             store.save()
-            ui.console.print(ui.session_card(s, "updated", border=ui.T.ok, notes_label="what I covered"))
+            ui.console.print(ui.session_card(s, "updated", border=ui.T.ok, notes_label="details"))
             return
         first = parts[pick]
         todo = [first]
@@ -375,12 +403,12 @@ def edit(
             else:
                 ui.info("Edit in place and press enter. Clear a line to remove it.")
                 if s.notes:
-                    ui.console.print(Text("  what I covered", style=f"bold {ui.T.accent}"))
+                    ui.console.print(Text("  details", style=f"bold {ui.T.accent}"))
                 notes = [n for n in (_prefilled("", old) for old in s.notes) if n]
-                notes += _ask_notes("What else do you want to add to this session?")
+                notes += _ask_notes("Anything else to add to this block?")
             if part == first:
                 other = parts[1 - parts.index(first)]
-                if Confirm.ask(Text(f"  Edit {'the time' if other == 'time' else 'what you covered'} too?",
+                if Confirm.ask(Text(f"  Edit {'the time' if other == 'time' else 'the details'} too?",
                                     style=f"bold {ui.T.text}"), default=False):
                     todo.append(other)
 
@@ -406,13 +434,13 @@ def edit(
         rid = conflict.apply(store, how, new_start, new_end, new_notes, s.id)
         store.get(rid).course = new_class
         store.save()
-        ui.console.print(ui.session_card(store.get(rid), "updated", border=ui.T.ok, notes_label="what I covered"))
+        ui.console.print(ui.session_card(store.get(rid), "updated", border=ui.T.ok, notes_label="details"))
         return
 
     _check_overlap(store, new_start, new_end, exclude=s.id)
     s.start, s.end, s.notes, s.course = new_start, new_end, new_notes, new_class
     store.save()
-    ui.console.print(ui.session_card(s, "updated", border=ui.T.ok, notes_label="what I covered"))
+    ui.console.print(ui.session_card(s, "updated", border=ui.T.ok, notes_label="details"))
 
 
 def _pick_class(store: Store, current: str | None) -> str | None:
@@ -423,8 +451,8 @@ def _pick_class(store: Store, current: str | None) -> str | None:
     return store.classes[i] if i < len(store.classes) else None
 
 
-_FIXES = {"merge": "Merge them", "trim": "Fit this one into the gap", "shorten": "Shorten the other session",
-          "replace": "Replace the other session"}
+_FIXES = {"merge": "Merge them", "trim": "Fit this one into the gap", "shorten": "Shorten the other block",
+          "replace": "Replace the other block"}
 
 
 def _resolve_overlap(store: Store, st: datetime, en: datetime, sid: int) -> str:
@@ -435,7 +463,7 @@ def _resolve_overlap(store: Store, st: datetime, en: datetime, sid: int) -> str:
                                        (f"  {' · '.join(o.notes)}" if o.notes else "", ui.T.muted)))
     opts = conflict.options(store, st, en, sid)
     keys = list(opts) + ["back", "cancel"]
-    labels = [f"{_FIXES[k]}  {opts[k]}" for k in opts] + ["Change the times", "Cancel (keep the session as it was)"]
+    labels = [f"{_FIXES[k]}  {opts[k]}" for k in opts] + ["Change the times", "Cancel (keep the block as it was)"]
     how = keys[_choose("How do you want to fix it?", labels)]
     if how == "cancel":
         ui.info("Nothing changed.")
