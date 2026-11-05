@@ -10,13 +10,13 @@ cram \- track your study hours from the terminal
 .B cram stop
 .br
 .B cram add
-.BR details | note | block
+.BR details | note | memo | block
 .RI [ text ]
 .br
 .B cram create class
 .I name
 .br
-.BR "cram ls\-class" " | " "cram ls\-note"
+.BR "cram ls\-class" " | " "cram ls\-note" " | " "cram ls\-memo"
 .SH DESCRIPTION
 .B cram
 logs study blocks: when you studied, for which class, and what you covered.
@@ -36,8 +36,12 @@ Stop the current block.
 .BI "add details " text
 Add details to the block you're in.
 .TP
-.BI "add note " text
-Add a note to self for this week. There are no reminders. Check notes off in the app.
+.BI "add note " "class text"
+Write a note about a class: what you did, what's still shaky. While you're studying, leave the class out
+and the note goes to the class you're in.
+.TP
+.BI "add memo " text
+Put a memo on the memo board, for any class or none. There are no reminders. Check memos off in the app.
 .TP
 .B add block
 Log a past block you forgot to start. Asks the class, the day, the start and end times, and optional details.
@@ -48,15 +52,18 @@ Create a class. Separate several with commas: \fBcram create class Statics, Calc
 .B ls\-class
 Your classes, with hours this week, in total, and when you last studied each.
 .TP
-.B ls\-note
-This week's notes, plus any left open from earlier weeks.
+.BR ls\-note " [\fIclass\fR]"
+Notes about one class, newest first, or every class's notes grouped by class.
+.TP
+.B ls\-memo
+The memo board: this week's memos, plus any left open from earlier weeks.
 .PP
 Times accept \fB9\fR, \fB9am\fR, \fB9:30pm\fR, \fB21:30\fR, \fBnoon\fR; days accept \fBtoday\fR,
 \fByesterday\fR, weekday names, \fB10/14\fR and \fB2026\-10\-14\fR.
 .SH THE APP
 The bottom bar takes the same words as the shell: \fBstart\fR [\fIclass\fR], \fBstop\fR,
-\fBadd details\fR, \fBadd note\fR, \fBadd block\fR, \fBcreate class\fR, plus \fBundo\fR and \fBredo\fR.
-Type \fB/\fR for views: \fB/day\fR, \fB/week\fR, \fB/notes\fR, \fB/classes\fR, \fB/config\fR.
+\fBadd details\fR, \fBadd note\fR, \fBadd memo\fR, \fBadd block\fR, \fBcreate class\fR, plus \fBundo\fR and \fBredo\fR.
+Type \fB/\fR for views: \fB/day\fR, \fB/week\fR, \fB/notes\fR, \fB/memo\fR, \fB/classes\fR, \fB/config\fR.
 \fBtab\fR moves between the bottom bar and the panels; arrow keys move between panels and \fBenter\fR opens one.
 \fBctrl+s\fR starts or stops, \fBctrl+z\fR undoes, \fBf1\fR lists every key, \fBctrl+q\fR quits.
 .SH TAB COMPLETION
@@ -67,7 +74,7 @@ Run \fBcram \-\-install\-completion\fR once and open a new terminal. Tab then co
 Theme, banner and mascot settings.
 .TP
 .I ~/.local/share/cram/data.json
-Your blocks, classes and notes. \fIdata.json.bak\fR is the previous version; a damaged file is replaced by it automatically.
+Your blocks, classes, notes and memos. \fIdata.json.bak\fR is the previous version; a damaged file is replaced by it automatically.
 .SH ENVIRONMENT
 .TP
 .B CRAM_HOME
@@ -78,7 +85,8 @@ cram create class Statics, Calc III
 cram start statics
 cram add details "ch 5 problems"
 cram stop
-cram add note "read ch 7"
+cram add note statics "moments still shaky"
+cram add memo "email the TA"
 .fi
 .SH SEE ALSO
 https://github.com/ricozama121803/cram

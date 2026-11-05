@@ -416,7 +416,7 @@ def test_todo_screen_add_check_off_and_remove():
         await pilot.press("escape"); await pilot.pause()
         assert not isinstance(app.screen, TodoScreen)
         notes = app.main.query_one("#notes")
-        assert notes.border_subtitle == "notes 0/2 done"
+        assert notes.border_subtitle == "memo 0/2 done"
         shown = "".join(seg.text for line in notes.render_lines(notes.region.reset_offset) for seg in line)
         assert "finish problem set 4" in shown and "email the TA" in shown
     run(script)
@@ -425,13 +425,16 @@ def test_todo_screen_add_check_off_and_remove():
 def test_bar_uses_the_same_words_as_the_shell():
     with_classes("Statics")
     async def script(app, pilot):
-        for line in ("start statics", "add details ch 5 problems", "add note read ch 7",
-                     "note problem set 4", "create class Calc III"):
+        for line in ("start statics", "add details ch 5 problems", "add memo email the TA",
+                     "memo print the lab sheet", "add note moments still shaky",
+                     "create class Calc III", "add note calc iii practice exam done"):
             app.main.query_one("#cmd").focus()
             await type_(pilot, line)
         st = Store.load()
         assert st.running().notes == ["ch 5 problems"]
-        assert [t.text for t in st.todos] == ["read ch 7", "problem set 4"]
+        assert [t.text for t in st.todos] == ["email the TA", "print the lab sheet"]
+        assert [(n.course, n.text) for n in st.notes] == [("Statics", "moments still shaky"),
+                                                          ("Calc III", "practice exam done")]
         assert st.classes == ["Statics", "Calc III"]
     run(script)
 
@@ -455,4 +458,26 @@ def test_notes_panel_shows_open_todos_and_opens_the_list():
         assert app.focused.id == "notes"
         await pilot.press("enter"); await pilot.pause()
         assert isinstance(app.screen, TodoScreen)
+    run(script)
+
+
+
+def test_notes_screen_adds_by_class_and_removes():
+    from cram.tui import NotesScreen
+    with_classes("Statics", "Calc III")
+    async def script(app, pilot):
+        await type_(pilot, "/notes")
+        assert isinstance(app.screen, NotesScreen)
+        await type_(pilot, "finished ch 5")                 # no class and not studying: refused
+        assert Store.load().notes == []
+        app.screen.query_one("#newnote").value = ""
+        await type_(pilot, "statics finished ch 5")
+        await type_(pilot, "calc practice exam 2")
+        assert [(n.course, n.text) for n in Store.load().notes] == [("Statics", "finished ch 5"),
+                                                                    ("Calc III", "practice exam 2")]
+        ol = app.screen.query_one("#notelist")
+        ol.focus(); await pilot.pause()
+        ol.highlighted = 1                                   # under the first class heading
+        await pilot.press("delete"); await pilot.pause()
+        assert len(Store.load().notes) == 1
     run(script)

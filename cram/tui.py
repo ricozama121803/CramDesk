@@ -7,7 +7,6 @@ import subprocess
 import sys
 from datetime import date, datetime, timedelta
 
-from rich import box
 from rich.console import Group
 from rich.table import Table
 from rich.text import Text
@@ -50,14 +49,15 @@ SHORTCUTS = [
     ("  start [class]", "start a block (no class: pick one)"),
     ("  stop", "stop the block"),
     ("  add details …", "details for the block you're in"),
-    ("  add note …", "a note to self for this week"),
+    ("  add note [class] …", "a note about a class (class optional while studying)"),
+    ("  add memo …", "a memo on the board, for any class"),
     ("  add block", "log a past block you forgot"),
     ("  create class …", "a new class"),
     ("  undo / redo", "take back your last change (or put it back)"),
-    ("  /day /week /notes /classes /config", "views and settings"),
+    ("  /day /week /notes /memo /classes /config", "views and settings"),
     ("", ""),
     ("tab", "switch between the bottom bar and the top section"),
-    ("arrows", "move between details, notes, today and week"),
+    ("arrows", "move between details, memo, today and week"),
     ("enter (on a panel)", "open it"),
     ("ctrl+s", "start / stop"),
     ("ctrl+z · ctrl+y", "undo · redo"),
@@ -92,7 +92,7 @@ def _notes_view(store: Store, monday: date, rows: int = 8):
     open_ = [t for t in mine if not t.done] + older
     done = [t for t in mine if t.done]
     if not open_ and not done:
-        return Text.assemble(("nothing yet · type ", ui.T.dim), ("add note read ch 7", f"bold {ui.T.accent}"),
+        return Text.assemble(("nothing yet · type ", ui.T.dim), ("add memo email the TA", f"bold {ui.T.accent}"),
                              (" below", ui.T.dim))
     lines = []
     for t in open_[:rows]:
@@ -692,7 +692,8 @@ def read_heartbeat() -> dict | None:
 SLASH = [
     ("/day", "a day's blocks", "/day yesterday"),
     ("/week", "the week, by day and class", "/week last"),
-    ("/notes", "notes to self: add, check off", ""),
+    ("/notes", "notes about your classes", ""),
+    ("/memo", "the memo board: add, check off", ""),
     ("/classes", "your classes", ""),
     ("/config", "color theme", ""),
     ("/help", "every key", ""),
@@ -1162,10 +1163,10 @@ class TodoScreen(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog") as v:
-            v.border_title = "notes"
+            v.border_title = "memo board"
             yield Static(id="todohead")
             yield OptionList(id="todolist")
-            yield Label("add a note", classes="field")
+            yield Label("add a memo", classes="field")
             yield Input(id="newtodo", placeholder="e.g. finish problem set 4, then enter")
             yield Static(id="error")
             yield Static(Text.assemble(("enter", "bold"), " adds · ", ("tab", "bold"), " to the list: ",
@@ -1181,7 +1182,7 @@ class TodoScreen(ModalScreen[bool]):
         store = Store.load()
         mine, older = store.todos_for(self.monday)
         self.query_one("#dialog").border_title = (
-            f"notes · week {fmt_md(self.monday)} – {fmt_md(self.monday + timedelta(days=6))}")
+            f"memo board · week {fmt_md(self.monday)} – {fmt_md(self.monday + timedelta(days=6))}")
         ol = self.query_one("#todolist", OptionList)
         keep = ol.highlighted
         ol.clear_options()
@@ -1196,7 +1197,7 @@ class TodoScreen(ModalScreen[bool]):
             ol.highlighted = min(keep or 0, ol.option_count - 1)
         summary = ui.todo_summary(store, self.monday)
         self.query_one("#todohead", Static).update(
-            summary if summary.plain else Text("No notes yet. Notes to self go here: no reminders.", style=ui.T.dim))
+            summary if summary.plain else Text("The memo board is empty. Memos for any class (or none) go here: no reminders.", style=ui.T.dim))
 
     def _selected(self):
         ol = self.query_one("#todolist", OptionList)
@@ -1291,6 +1292,94 @@ class ClassPicker(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class NotesScreen(ModalScreen[bool]):
+    """Notes about your classes, newest first under each class. Type 'statics finished ch 5' + enter to add."""
+
+    BINDINGS = [
+        Binding("escape", "close", "close"),
+        Binding("delete", "remove", "remove", show=False),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="dialog") as v:
+            v.border_title = "notes"
+            yield Static(id="noteshead")
+            yield OptionList(id="notelist")
+            yield Label("add a note: the class, then the note  (while studying, the class is optional)",
+                        classes="field")
+            yield Input(id="newnote", placeholder="e.g. statics finished ch 5, moments still shaky")
+            yield Static(id="error")
+            yield Static(Text.assemble(("enter", "bold"), " adds · ", ("tab", "bold"), " to the list, ",
+                                       ("delete", "bold"), " removes · ", ("esc", "bold"), " close",
+                                       style=ui.T.muted), id="hint")
+
+    def on_mount(self) -> None:
+        self.reload()
+        self.query_one("#newnote").focus()
+
+    def reload(self) -> None:
+        store = Store.load()
+        ol = self.query_one("#notelist", OptionList)
+        keep = ol.highlighted
+        ol.clear_options()
+        notes = store.notes_for()
+        order = list(store.classes) + sorted({n.course for n in notes} - set(store.classes))
+        for c in order:
+            mine = [n for n in notes if n.course == c]
+            if mine:
+                ol.add_option(Option(Text(c, style=f"bold {ui.T.accent}"), disabled=True))
+                for n in mine:
+                    ol.add_option(Option(ui.note_line(n), id=str(n.id)))
+        ol.display = bool(notes)
+        if ol.option_count:
+            ol.highlighted = min(keep or 1, ol.option_count - 1)
+        self.query_one("#noteshead", Static).update(
+            Text(f"{len(notes)} note{'s' if len(notes) != 1 else ''}", style=ui.T.dim) if notes
+            else Text("No notes yet. Write what you did, what's still shaky, anything.", style=ui.T.dim))
+
+    @on(Input.Submitted, "#newnote")
+    def _add(self, ev: Input.Submitted) -> None:
+        text = ev.value.strip()
+        if not text:
+            self.action_close()
+            return
+        store = Store.load()
+        course, rest = store.match_class(text)
+        if not course:
+            run = store.running()
+            if run and run.course:
+                course, rest = run.course, text
+            else:
+                self.query_one("#error", Static).update(Text(
+                    "start with the class: e.g. statics finished ch 5", style=f"bold {ui.T.err}"))
+                return
+        if not rest:
+            self.query_one("#error", Static).update(Text(f"write the note after {course}", style=f"bold {ui.T.err}"))
+            return
+        n = store.add_note(course, rest)
+        store.save()
+        ev.input.value = ""
+        self.query_one("#error", Static).update(Text(f"✓ note for {n.course}", style=f"bold {ui.T.ok}"))
+        self.reload()
+
+    def action_remove(self) -> None:
+        ol = self.query_one("#notelist", OptionList)
+        if self.focused is not ol or ol.highlighted is None:
+            return
+        opt = ol.get_option_at_index(ol.highlighted)
+        if not opt.id:
+            return
+        store = Store.load()
+        store.remove_note(int(opt.id))
+        store.save()
+        self.query_one("#error", Static).update(Text("note removed (ctrl+z in the main screen undoes it)",
+                                                     style=ui.T.muted))
+        self.reload()
+
+    def action_close(self) -> None:
+        self.dismiss(True)
+
+
 class ObPage(Static, can_focus=True):
     """A setup page with nothing to type: enter moves on."""
 
@@ -1350,7 +1439,8 @@ class OnboardingScreen(ModalScreen[bool]):
             ("start", "type it in the bar at the bottom (add a class: start statics)"),
             ("details", "type what you're covering as you go"),
             ("stop", "ends the block"),
-            ("add note …", "a note to self for this week"),
+            ("add note …", "a note about the class you're studying"),
+            ("add memo …", "a memo on the board, for any class"),
             ("tab", "switch between the bottom bar and the top section"),
             ("/", "views: a day, the week, notes, classes"),
             ("f1", "every key"),
@@ -1592,7 +1682,7 @@ class MainScreen(Screen):
         self.set_interval(0.12, self._mascot_tick)
         self.query_one("#slash", OptionList).can_focus = False
         self.query_one("#today").border_title = "today"
-        self.query_one("#notes").border_title = "notes"
+        self.query_one("#notes").border_title = "memo"
         self.reload()
         self.set_interval(1, self._tick)
         self.query_one("#cmd", Input).focus()
@@ -1942,16 +2032,22 @@ class MainScreen(Screen):
             self._punch_out()
         elif w0 == "add" and w1 in ("details", "detail"):
             self._add_details(" ".join(words[2:]))
-        elif w0 == "add" and w1 in ("note", "notes", "todo"):
+        elif w0 == "add" and w1 in ("memo", "todo"):
             self._add_from_bar("todo", " ".join(words[2:]))
+        elif w0 == "add" and w1 in ("note", "notes"):
+            self._add_class_note(" ".join(words[2:]))
         elif w0 == "add" and w1 == "block":
             self.app.push_screen(BlockEditor(None, "add"), lambda ok: self.reload())
         elif (w0 == "create" or w0 == "add") and w1 == "class":
             self._add_from_bar("class", " ".join(words[2:]))
-        elif w0 in ("note", "todo"):
+        elif w0 in ("memo", "todo"):
             self._add_from_bar("todo", " ".join(words[1:]))
-        elif w0 in ("ls-note", "notes"):
+        elif w0 == "note":
+            self._add_class_note(" ".join(words[1:]))
+        elif w0 in ("ls-memo",):
             self.action_todo()
+        elif w0 in ("ls-note", "notes"):
+            self.app.push_screen(NotesScreen(), lambda _: self.reload())
         elif w0 in ("ls-class", "classes"):
             self.action_classes()
         elif w0 in ("undo", "redo"):
@@ -1960,8 +2056,23 @@ class MainScreen(Screen):
                 getattr(self.app, f"action_{w0}")()
         else:
             event.input.value = text
-            self.app.notify("Try [b]start[/b], [b]stop[/b], [b]add details …[/b], [b]add note …[/b] or [b]/[/b] for more.",
+            self.app.notify("Try [b]start[/b], [b]stop[/b], [b]add details …[/b], [b]add note …[/b], [b]add memo …[/b] "
+                            "or [b]/[/b] for more.",
                             severity="warning")
+
+    def _add_class_note(self, text: str) -> None:
+        store = Store.load()
+        course, rest = store.match_class(text)
+        if not course:
+            run = store.running()
+            if run and run.course:
+                course, rest = run.course, text
+        if not course or not rest:
+            self.app.push_screen(NotesScreen(), lambda _: self.reload())    # pick the class there
+            return
+        store.add_note(course, rest)
+        store.save()
+        self.app.notify(rest, title=f"✓ note for {course}")
 
     def _add_details(self, text: str) -> None:
         store = Store.load()
@@ -1984,7 +2095,7 @@ class MainScreen(Screen):
         if group == "todo":
             t = store.add_todo(text, week_start(date.today()))
             msg = t.text
-            title = "✓ note added"
+            title = "✓ memo added"
         else:
             msg = ", ".join(store.add_class(p) for p in text.split(",") if p.strip())
             title = "✓ class created"
@@ -2005,7 +2116,9 @@ class MainScreen(Screen):
                 self.action_config()
             elif cmd == "/classes":
                 self.action_classes()
-            elif cmd in ("/notes", "/todo"):
+            elif cmd == "/notes":
+                self.app.push_screen(NotesScreen(), lambda _: self.reload())
+            elif cmd in ("/memo", "/todo"):
                 self.action_todo()
             elif cmd == "/help":
                 self.action_keys()
@@ -2203,7 +2316,7 @@ class CramApp(App):
     #cmd { border: none; height: 1; padding: 0; background: transparent; }
     #status { height: 1; padding: 0 3; }
 
-    BlockEditor, Confirm, KeysSheet, ConfigScreen, ClassesScreen, TodoScreen, ClassPicker, RecoverScreen, QuitScreen, ConflictScreen, OnboardingScreen {
+    BlockEditor, Confirm, KeysSheet, ConfigScreen, ClassesScreen, TodoScreen, NotesScreen, ClassPicker, RecoverScreen, QuitScreen, ConflictScreen, OnboardingScreen {
         align: center middle; background: $background 60%;
     }
     #dialog {
@@ -2224,6 +2337,11 @@ class CramApp(App):
     .field { color: $text-muted; margin-top: 1; }
     #quitopts { height: auto; margin-top: 1; background: transparent; border: none; }
     #quitopts > .option-list--option-highlighted { background: $primary 35%; text-style: none; }
+    #notelist { height: auto; max-height: 18; background: transparent; border: round $foreground 20%; }
+    #notelist:focus { border: round $accent; }
+    #newnote { border: tall $foreground 20%; background: transparent; }
+    #newnote:focus { border: tall $accent; }
+    #notelist > .option-list--option-highlighted { background: $primary 35%; text-style: none; }
     #picklist { height: auto; max-height: 14; background: transparent; border: round $foreground 20%; }
     #picklist:focus { border: round $accent; }
     #pickname { border: tall $foreground 20%; background: transparent; }

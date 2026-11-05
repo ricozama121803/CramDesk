@@ -288,8 +288,8 @@ def test_todo_add_list_done_and_carry_over():
 
 def test_todo_shows_in_the_week_view_and_undo():
     cram("todo", "add", "finish", "essay")
-    assert "notes" in cram("v-week").output and "finish essay" in cram("v-week").output
-    assert "add note “finish essay”" in cram("undo").output
+    assert "memo board" in cram("v-week").output and "finish essay" in cram("v-week").output
+    assert "add memo “finish essay”" in cram("undo").output
     assert Store.load().todos == []
 
 
@@ -304,8 +304,9 @@ def complete(line):
 
 def test_tab_completes_commands_and_class_names_word_by_word():
     cram("class", "add", "Linear Algebra, Linear Programming, Chemistry")
-    assert set(complete("cram ")) == {"start", "stop", "add", "create", "ls-class", "ls-note"}   # old names hidden
-    assert set(complete("cram add ")) == {"details", "note", "block"}
+    assert set(complete("cram ")) == {"start", "stop", "add", "create", "ls-class", "ls-note", "ls-memo"}
+    assert set(complete("cram add ")) == {"details", "note", "memo", "block"}
+    assert complete("cram add note lin") == ["linear"]
     assert complete("cram start lin") == ["linear"]
     assert complete("cram in lin") == ["linear"]
     assert complete("cram in linear ") == ["algebra", "programming"]
@@ -387,11 +388,32 @@ def test_details_and_stop_need_a_running_block():
     assert cram("stop").exit_code == 1
 
 
-def test_add_note_and_ls_note():
-    assert cram("add", "note", "read ch 7").exit_code == 0
+def test_add_memo_and_ls_memo():
+    assert cram("add", "memo", "email the TA").exit_code == 0
     assert cram("add", "todo", "old word works").exit_code == 0        # hidden alias
+    r = cram("ls-memo")
+    assert "memo board" in r.output and "email the TA" in r.output and "old word works" in r.output
+
+
+def test_class_notes():
+    cram("create", "class", "Statics, Calc III")
+    assert cram("add", "note", "statics", "finished", "ch 5").exit_code == 0
+    assert cram("add", "note", "calc", "iii", "practice exam 2").exit_code == 0
+    r = cram("add", "note", "no class given")
+    assert r.exit_code == 1 and "Which class" in r.output
+    assert cram("add", "note", "statics").exit_code == 1                 # a class but no note
+    cram("start", "--at", "10/14/26 9am", "calc")
+    assert cram("add", "note", "series", "tests", "clicking").exit_code == 0   # goes to the class you're in
+    st = Store.load()
+    assert [(n.course, n.text) for n in st.notes] == [("Statics", "finished ch 5"), ("Calc III", "practice exam 2"),
+                                                      ("Calc III", "series tests clicking")]
+    r = cram("ls-note", "stat")
+    assert "finished ch 5" in r.output and "practice exam" not in r.output
     r = cram("ls-note")
-    assert "read ch 7" in r.output and "old word works" in r.output
+    assert "Statics" in r.output and "Calc III" in r.output and "series tests clicking" in r.output
+    cram("class", "rename", "calc iii", "Calc 3")
+    assert {n.course for n in Store.load().notes} == {"Statics", "Calc 3"}   # notes follow a rename
+
 
 
 def test_add_block_asks_everything(monkeypatch):

@@ -11,7 +11,7 @@ from rich.table import Table
 from rich.text import Text
 
 from .report import Report
-from .store import Session, Store, Todo
+from .store import Note, Session, Store, Todo
 from .timeutil import DAY_ABBR, fmt_hm, fmt_md, fmt_range, fmt_time, week_days
 
 console = Console(highlight=False)
@@ -360,7 +360,7 @@ def todo_summary(store: Store, monday: date) -> Text:
     if not mine and not older:
         return Text("")
     done = sum(t.done for t in mine)
-    out = Text.assemble(("notes ", T.dim), (f"{done}/{len(mine)} done", f"bold {T.text}"))
+    out = Text.assemble(("memo ", T.dim), (f"{done}/{len(mine)} done", f"bold {T.text}"))
     if older:
         out.append(f"   +{len(older)} open from earlier", style=T.warn)
     return out
@@ -370,11 +370,42 @@ def todo_list(store: Store, monday: date) -> Group:
     mine, older = store.todos_for(monday)
     parts: list = []
     if not mine and not older:
-        return Group(Text('no notes yet. add one with  cram add note "read ch 7"', style=T.dim))
+        return Group(Text('the memo board is empty. add one with  cram add memo "email the TA"', style=T.dim))
     parts += [todo_line(t) for t in mine] or [Text("nothing for this week yet", style=T.dim)]
     if older:
         parts += [Text(""), Text("still open from earlier weeks", style=f"bold {T.warn}")]
         parts += [todo_line(t, show_week=True) for t in older]
+    return Group(*parts)
+
+
+def note_line(n: Note, show_class: bool = False) -> Text:
+    line = Text()
+    line.append(f"#{n.id:<3} ", style=T.dim)
+    line.append(f"{DAY_ABBR[n.at.weekday()]} {fmt_md(n.at.date())} {fmt_time(n.at)}  ", style=T.muted)
+    if show_class:
+        line.append(f"{n.course}  ", style=f"bold {T.accent2}")
+    line.append(n.text, style=T.text)
+    return line
+
+
+def notes_view(store: Store, course: str | None = None) -> Group:
+    """One class's notes, or every class's notes grouped under its name. Newest first."""
+    notes = store.notes_for(course)
+    if not notes:
+        who = course or "any class"
+        return Group(Text(f'no notes for {who} yet. add one with  cram add note {(course or "statics").lower()} "…"',
+                          style=T.dim))
+    if course:
+        return Group(*[note_line(n) for n in notes])
+    parts: list = []
+    order = list(store.classes) + sorted({n.course for n in notes} - set(store.classes))
+    for c in order:
+        mine = [n for n in notes if n.course == c]
+        if mine:
+            if parts:
+                parts.append(Text(""))
+            parts.append(Text(c, style=f"bold {T.accent}"))
+            parts += [note_line(n) for n in mine]
     return Group(*parts)
 
 

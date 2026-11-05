@@ -78,17 +78,34 @@ class Todo:
                    done=bool(d.get("done")), course=d.get("class") or None)
 
 
+@dataclass
+class Note:
+    """Something written about a class: what you did, what's still shaky, anything."""
+    id: int
+    course: str
+    text: str
+    at: datetime
+
+    def to_dict(self) -> dict:
+        return {"id": self.id, "class": self.course, "text": self.text, "at": self.at.isoformat(timespec="minutes")}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Note":
+        return cls(id=d["id"], course=d["class"], text=d["text"], at=datetime.fromisoformat(d["at"]))
+
+
 class DataError(Exception):
     """The data file can't be read."""
 
 
 class Store:
     def __init__(self, sessions: list[Session], next_id: int, classes: list[str] | None = None,
-                 todos: list[Todo] | None = None):
+                 todos: list[Todo] | None = None, notes: list[Note] | None = None):
         self.sessions = sessions
         self.next_id = next_id
         self.classes: list[str] = classes or []
-        self.todos: list[Todo] = todos or []
+        self.todos: list[Todo] = todos or []    # the memo board
+        self.notes: list[Note] = notes or []    # notes about a class
 
     # ── io ──
     @classmethod
@@ -118,7 +135,11 @@ class Store:
             todos = [Todo.from_dict(t) for t in raw.get("todos", [])]
         except (ValueError, KeyError, TypeError):
             todos = []
-        return cls(sessions, next_id, [c for c in raw.get("classes", []) if isinstance(c, str)], todos)
+        try:
+            notes = [Note.from_dict(n) for n in raw.get("notes", [])]
+        except (ValueError, KeyError, TypeError):
+            notes = []
+        return cls(sessions, next_id, [c for c in raw.get("classes", []) if isinstance(c, str)], todos, notes)
 
     def save(self, record: bool = True) -> None:
         path = data_file()
@@ -127,6 +148,7 @@ class Store:
             "next_id": self.next_id,
             "classes": self.classes,
             "todos": [t.to_dict() for t in self.todos],
+            "notes": [n.to_dict() for n in self.notes],
             "sessions": [s.to_dict() for s in sorted(self.sessions, key=lambda s: s.start)],
         }
         text = json.dumps(payload, indent=2)
@@ -200,6 +222,24 @@ class Store:
         key = lambda t: (t.done, t.id)
         return sorted(mine, key=key), sorted(older, key=lambda t: (t.week, t.id))
 
+    # ── class notes ──
+    def add_note(self, course: str, text: str, at: datetime | None = None) -> Note:
+        text = " ".join(text.split())
+        if not text:
+            raise ValueError("a note needs some text")
+        n = Note(max((x.id for x in self.notes), default=0) + 1, course, text,
+                 (at or datetime.now()).replace(second=0, microsecond=0))
+        self.notes.append(n)
+        return n
+
+    def notes_for(self, course: str | None = None) -> list[Note]:
+        """Newest first; all classes when course is None."""
+        return sorted((n for n in self.notes if course is None or n.course == course), key=lambda n: (n.at, n.id),
+                      reverse=True)
+
+    def remove_note(self, nid: int) -> None:
+        self.notes = [n for n in self.notes if n.id != nid]
+
     # ── classes ──
     def find_class(self, name: str) -> str | None:
         """The saved spelling of a class, matched without caring about case or extra spaces."""
@@ -236,6 +276,9 @@ class Store:
         for s in self.sessions:
             if s.course == found:
                 s.course = new
+        for n in self.notes:
+            if n.course == found:
+                n.course = new
         return new
 
     def match_class(self, text: str) -> tuple[str | None, str]:
