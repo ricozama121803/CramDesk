@@ -1621,7 +1621,7 @@ class QuitScreen(ModalScreen[str]):
 
 class MainScreen(Screen):
     BINDINGS = [
-        Binding("ctrl+n", "new_item", "add note", show=False),
+        Binding("ctrl+n", "new_item", "add details", show=False),
         Binding("ctrl+s", "punch_in", "start studying", show=False),
         Binding("ctrl+s", "punch_out", "stop", show=False),
         Binding("tab", "toggle_area", "switch window"),
@@ -1665,7 +1665,7 @@ class MainScreen(Screen):
         yield OptionList(id="slash")
         with Horizontal(id="prompt"):
             yield Static("❯", id="caret")
-            yield CommandInput(id="cmd", placeholder="start · stop · add details … · add note … · / for more")
+            yield CommandInput(id="cmd", placeholder="start · stop · log … · add memo … · / for more")
         yield Static(id="status")
         yield Footer()
 

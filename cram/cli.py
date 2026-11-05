@@ -754,7 +754,7 @@ def todo_clear(week: Optional[str] = typer.Option(None, "--week", "-w", help=WEE
 
 
 # ── the commands you see ─────────────────────────────────────────────────────
-# cram start · stop · add details/note/block · create class · ls-class · ls-note.
+# cram start · stop · log · add details/memo/block · create class · ls-class · ls-log · ls-memo.
 # Everything else lives in the app (plain `cram`). Older names still work but are hidden.
 
 def _ask_class(store: Store) -> str:
