@@ -430,6 +430,8 @@ def test_bar_uses_the_same_words_as_the_shell():
                      "create class Calc III", "log calc iii practice exam done"):
             app.main.query_one("#cmd").focus()
             await type_(pilot, line)
+            if line == "add memo email the TA":                 # asks which class: enter keeps "No class"
+                await pilot.press("enter"); await pilot.pause()
         st = Store.load()
         assert st.running().notes == ["ch 5 problems"]
         assert [(t.course, t.text) for t in st.todos] == [(None, "email the TA"), ("Statics", "print the lab sheet")]
@@ -480,4 +482,23 @@ def test_log_screen_adds_by_class_and_removes():
         ol.highlighted = 1                                   # under the first class heading
         await pilot.press("delete"); await pilot.pause()
         assert len(Store.load().notes) == 1
+    run(script)
+
+
+
+def test_add_memo_in_the_bar_asks_the_class_and_suggests_a_mentioned_one():
+    from cram.tui import ClassPicker
+    with_classes("Calc III", "Statics")
+    async def script(app, pilot):
+        await type_(pilot, "add memo refresh on statics slides")
+        assert isinstance(app.screen, ClassPicker)
+        await pilot.press("enter"); await pilot.pause()      # the mentioned class is first
+        app.main.query_one("#cmd").focus()
+        await type_(pilot, "add memo email the TA")
+        await pilot.press("enter"); await pilot.pause()      # nothing mentioned: "No class" is the default
+        app.main.query_one("#cmd").focus()
+        await type_(pilot, "add memo calc iii: practice exam")   # tagged already: no question
+        assert not isinstance(app.screen, ClassPicker)
+        assert [(t.course, t.text) for t in Store.load().todos] == [
+            ("Statics", "refresh on statics slides"), (None, "email the TA"), ("Calc III", "practice exam")]
     run(script)

@@ -1253,16 +1253,28 @@ class TodoScreen(ModalScreen[bool]):
 
 
 class ClassPicker(ModalScreen[str | None]):
-    """Which class is this block for? ↑↓ + enter picks one, or type a new name."""
+    """Which class is this for? ↑↓ + enter picks one, or type a new name.
+    Returns the class, "" for "no class" (when allowed), or None when cancelled."""
 
     BINDINGS = [Binding("escape", "cancel", "cancel")]
+    NONE = "\u0000none"
+
+    def __init__(self, title: str = "which class?", allow_none: bool = False, first: list[str] | None = None):
+        super().__init__()
+        self.title_text, self.allow_none, self.first = title, allow_none, list(first or [])
 
     def compose(self) -> ComposeResult:
-        classes = Store.load().classes
+        store = Store.load()
+        classes = self.first + [c for c in store.classes if c not in self.first]
         with Vertical(id="dialog") as v:
-            v.border_title = "which class?"
+            v.border_title = self.title_text
             if classes:
-                yield OptionList(*[Option(Text(c, style=f"bold {ui.T.text}"), id=c) for c in classes], id="picklist")
+                opts = [Option(Text.assemble((c, f"bold {ui.T.text}"),
+                                             ("   (mentioned)" if c in self.first else "", ui.T.dim)), id=c)
+                        for c in classes]
+                if self.allow_none:
+                    opts.append(Option(Text("No class", style=ui.T.muted), id=self.NONE))
+                yield OptionList(*opts, id="picklist")
                 yield Label("or a new class", classes="field")
             else:
                 yield Static(Text("You don't have any classes yet. Name your first one:", style=ui.T.text))
@@ -1272,11 +1284,17 @@ class ClassPicker(ModalScreen[str | None]):
 
     def on_mount(self) -> None:
         lists = self.query("#picklist")
-        (lists.first() if lists else self.query_one("#pickname")).focus()
+        if lists:
+            ol = lists.first()
+            ol.focus()
+            if self.allow_none and not self.first:
+                ol.highlighted = ol.option_count - 1          # nothing mentioned: "No class" is the default
+        else:
+            self.query_one("#pickname").focus()
 
     @on(OptionList.OptionSelected, "#picklist")
     def _picked(self, ev: OptionList.OptionSelected) -> None:
-        self.dismiss(ev.option.id)
+        self.dismiss("" if ev.option.id == self.NONE else ev.option.id)
 
     @on(Input.Submitted, "#pickname")
     def _named(self, ev: Input.Submitted) -> None:
@@ -2085,18 +2103,32 @@ class MainScreen(Screen):
         store.save()
         self.reload()
 
+    def _save_memo(self, text: str, course: str) -> None:
+        store = Store.load()
+        t = store.add_todo(text, week_start(date.today()), course)
+        store.save()
+        self.app.notify((f"{t.course} · " if t.course else "") + t.text, title="✓ memo added")
+        self.reload()
+
     def _add_from_bar(self, group: str, text: str) -> None:
         if not text:
             self.action_todo() if group == "todo" else self.action_classes()
             return
         store = Store.load()
         if group == "todo":
-            t = store.add_todo(text, week_start(date.today()))
-            msg = (f"{t.course} · " if t.course else "") + t.text
-            title = "✓ memo added"
-        else:
-            msg = ", ".join(store.add_class(p) for p in text.split(",") if p.strip())
-            title = "✓ class created"
+            course, body = store.split_class_tag(text)
+            if course is None and store.classes:
+                # no 'class:' in front: ask which class, with any the memo mentions first
+                def picked(name: str | None) -> None:
+                    if name is not None:
+                        self._save_memo(body, name)
+                self.app.push_screen(ClassPicker("which class is this memo for?", allow_none=True,
+                                                 first=store.mentioned_classes(body)), picked)
+                return
+            self._save_memo(body, course or "")
+            return
+        msg = ", ".join(store.add_class(p) for p in text.split(",") if p.strip())
+        title = "✓ class created"
         store.save()
         self.app.notify(msg, title=title)
         self.reload()

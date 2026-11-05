@@ -464,3 +464,23 @@ def test_old_commands_still_work_but_are_hidden():
     listed = r.output[r.output.index("Commands"):]
     for old in ("│ in ", "│ out ", "│ v-week", "│ todo", "│ class ", "│ cycle-theme", "│ edit", "│ undo"):
         assert old not in listed, old
+
+
+
+def test_add_memo_asks_the_class_in_a_terminal(monkeypatch):
+    monkeypatch.setattr(cli, "_tty", lambda: True)
+    cram("create", "class", "Calc III, Statics")
+    r = cram("add", "memo", "refresh on statics slides from this week", input="\n")
+    assert "(mentioned)" in r.output                          # Statics is offered first...
+    cram("add", "memo", "email the TA", input="\n")          # ...and with nothing mentioned, enter = no class
+    cram("add", "memo", "email the TA again", input="1\n")
+    cram("add", "memo", "statics: tagged already")            # no question
+    assert [(t.course, t.text) for t in Store.load().todos] == [
+        ("Statics", "refresh on statics slides from this week"), (None, "email the TA"),
+        ("Calc III", "email the TA again"), ("Statics", "tagged already")]
+
+
+def test_add_memo_without_a_terminal_does_not_ask():
+    cram("create", "class", "Statics")
+    assert cram("add", "memo", "refresh on statics slides").exit_code == 0
+    assert Store.load().todos[0].course is None

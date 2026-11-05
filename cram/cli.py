@@ -187,12 +187,13 @@ def _prefilled(label: str, value: str) -> str:
             readline.set_startup_hook()
 
 
-def _choose(prompt: str, labels: list[str]) -> int:
-    """Numbered menu; returns the 0-based index picked."""
+def _choose(prompt: str, labels: list[str], default: int | None = None) -> int:
+    """Numbered menu; returns the 0-based index picked. With a default, plain enter picks it."""
     for n, label in enumerate(labels, 1):
         ui.console.print(Text.assemble((f"  {n}  ", f"bold {ui.T.accent}"), (label, ui.T.text)))
     pick = IntPrompt.ask(Text(f"  {prompt}", style=f"bold {ui.T.text}"),
-                         choices=[str(n) for n in range(1, len(labels) + 1)], show_choices=False)
+                         choices=[str(n) for n in range(1, len(labels) + 1)], show_choices=False,
+                         default=None if default is None else default + 1)
     return pick - 1
 
 
@@ -859,9 +860,20 @@ def add_memo(text: list[str] = typer.Argument(..., help="The memo. Start with 'c
                                                   autocompletion=_complete_class_option)):
     """Put a memo on the board. [dim]e.g. cram add memo "email the TA"[/] or [dim]cram add memo "statics: review slides"[/]"""
     store, _ = _load()
-    cls = _class_arg(store, course) if course is not None else None
+    body = " ".join(text)
+    if course is not None:
+        cls = _class_arg(store, course)
+    else:
+        cls, body = store.split_class_tag(body)
+        if cls is None and store.classes and _tty():
+            # no 'class:' and no -c: ask, with any class the memo mentions first
+            seen = store.mentioned_classes(body)
+            order = seen + [c for c in store.classes if c not in seen]
+            labels = [c + ("   (mentioned)" if c in seen else "") for c in order] + ["No class"]
+            i = _choose("Which class is this memo for?", labels, default=0 if seen else len(order))
+            cls = order[i] if i < len(order) else None
     try:
-        t = store.add_todo(" ".join(text), week_start(date.today()), cls)
+        t = store.add_todo(body, week_start(date.today()), cls or "")
     except ValueError:
         _fail('Give the memo some text: [b]cram add memo "email the TA"[/]')
     store.save()

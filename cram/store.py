@@ -210,10 +210,18 @@ class Store:
                 return course, rest.strip()
         return None, text
 
+    def mentioned_classes(self, text: str) -> list[str]:
+        """Classes the text talks about: 'refresh on statics slides' -> ['Statics']."""
+        low = text.lower()
+        words = set(low.replace(",", " ").replace(".", " ").split())
+        return [c for c in self.classes
+                if c.lower() in low or any(len(w) >= 4 and w in words for w in c.lower().split())]
+
     def add_todo(self, text: str, week: date, course: str | None = None) -> Todo:
         """A memo. Tag it with a class by passing course, or by starting the text with 'class:'."""
         if course is None:
             course, text = self.split_class_tag(text)
+        course = course or None          # "" means: no class, chosen on purpose
         text = " ".join(text.split())
         if not text:
             raise ValueError("a memo needs some text")
