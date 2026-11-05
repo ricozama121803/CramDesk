@@ -30,10 +30,11 @@ cram add details "ch 5 problems"   # details for the block you're in
 cram stop
 cram add block                 # log a past block you forgot (asks class, day, start, end)
 
-cram add note statics "moments still shaky"   # a note about a class (class optional while studying)
-cram ls-note [statics]         # one class's notes, or every class's
+cram log statics "finished ch 5, moments still shaky"   # what you did (class optional while studying)
+cram ls-log [statics]          # one class's log, or every class's
 
-cram add memo "email the TA"   # the memo board: for any class or none, no reminders
+cram add memo "email the TA"   # the memo board, no reminders
+cram add memo "statics: review the slides"    # 'class:' in front tags it (or: -c statics)
 cram ls-memo
 ```
 
@@ -42,19 +43,19 @@ Class names can be shortened (`cram start stat`), and `tab` completes them.
 ## The app
 
 Run `cram`. The bottom bar takes the same words: `start statics`, `stop`, `add details …`,
-`add note …`, `add memo …`, `add block`, `create class …`, `undo`.
+`log …`, `add memo …`, `add block`, `create class …`, `undo`.
 
 - **details** under the clock: type what you're covering as you go.
 - **memo** panel: the memo board. Press `enter` on it to check memos off.
 - **today** and **week** panels: hours per day and per class. `enter` opens either one.
-- `/` lists the views (`/day`, `/week`, `/notes`, `/memo`, `/classes`, `/config`), and `f1` shows every key.
+- `/` lists the views (`/day`, `/week`, `/log`, `/memo`, `/classes`, `/config`), and `f1` shows every key.
 
 ## Files
 
 | Path | What's in it |
 | --- | --- |
 | `~/.config/cram/config.toml` | Theme and display settings |
-| `~/.local/share/cram/data.json` | Your blocks, classes, notes and memos (plus a `.bak` and undo history) |
+| `~/.local/share/cram/data.json` | Your blocks, classes, log and memos (plus a `.bak` and undo history) |
 
 cram keeps its own files, separate from pnch. Set `CRAM_HOME=/some/folder` to keep everything in one place.
 

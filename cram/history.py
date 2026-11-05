@@ -137,12 +137,12 @@ def describe(before: str | None, after: str | None) -> str:
             changes.append(("check off" if tb[tid].get("done") else "uncheck") + f" “{_short(tb[tid]['text'])}”")
         elif ta[tid] != tb[tid]:
             changes.append(f"edit memo “{_short(tb[tid]['text'])}”")
-    na = {n["id"]: n for n in (json.loads(before).get("notes", []) if before else [])}
-    nb = {n["id"]: n for n in (json.loads(after).get("notes", []) if after else [])}
+    na = {n["id"]: n for n in (json.loads(before).get("log", []) if before else [])}
+    nb = {n["id"]: n for n in (json.loads(after).get("log", []) if after else [])}
     for nid in nb.keys() - na.keys():
-        changes.append(f"add {nb[nid]['class']} note “{_short(nb[nid]['text'])}”")
+        changes.append(f"log for {nb[nid]['class']} “{_short(nb[nid]['text'])}”")
     for nid in na.keys() - nb.keys():
-        changes.append(f"remove {na[nid]['class']} note “{_short(na[nid]['text'])}”")
+        changes.append(f"remove {na[nid]['class']} log entry “{_short(na[nid]['text'])}”")
     ca = json.loads(before).get("classes", []) if before else []
     cb = json.loads(after).get("classes", []) if after else []
     added, gone = [c for c in cb if c not in ca], [c for c in ca if c not in cb]

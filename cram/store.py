@@ -80,7 +80,7 @@ class Todo:
 
 @dataclass
 class Note:
-    """Something written about a class: what you did, what's still shaky, anything."""
+    """A log entry for a class: what you did, what's still shaky, anything."""
     id: int
     course: str
     text: str
@@ -105,7 +105,7 @@ class Store:
         self.next_id = next_id
         self.classes: list[str] = classes or []
         self.todos: list[Todo] = todos or []    # the memo board
-        self.notes: list[Note] = notes or []    # notes about a class
+        self.notes: list[Note] = notes or []    # the activity log, per class
 
     # ── io ──
     @classmethod
@@ -136,7 +136,7 @@ class Store:
         except (ValueError, KeyError, TypeError):
             todos = []
         try:
-            notes = [Note.from_dict(n) for n in raw.get("notes", [])]
+            notes = [Note.from_dict(n) for n in raw.get("log", raw.get("notes", []))]
         except (ValueError, KeyError, TypeError):
             notes = []
         return cls(sessions, next_id, [c for c in raw.get("classes", []) if isinstance(c, str)], todos, notes)
@@ -148,7 +148,7 @@ class Store:
             "next_id": self.next_id,
             "classes": self.classes,
             "todos": [t.to_dict() for t in self.todos],
-            "notes": [n.to_dict() for n in self.notes],
+            "log": [n.to_dict() for n in self.notes],
             "sessions": [s.to_dict() for s in sorted(self.sessions, key=lambda s: s.start)],
         }
         text = json.dumps(payload, indent=2)
@@ -201,11 +201,23 @@ class Store:
         return None
 
     # ── todos ──
-    def add_todo(self, text: str, week: date) -> Todo:
+    def split_class_tag(self, text: str) -> tuple[str | None, str]:
+        """'statics: review slides' -> ('Statics', 'review slides'). Without a 'class:' in front -> (None, text)."""
+        head, colon, rest = text.partition(":")
+        if colon and head.strip() and rest.strip():
+            course, left = self.match_class(head)
+            if course and not left:
+                return course, rest.strip()
+        return None, text
+
+    def add_todo(self, text: str, week: date, course: str | None = None) -> Todo:
+        """A memo. Tag it with a class by passing course, or by starting the text with 'class:'."""
+        if course is None:
+            course, text = self.split_class_tag(text)
         text = " ".join(text.split())
         if not text:
-            raise ValueError("a to-do needs some text")
-        t = Todo(max((x.id for x in self.todos), default=0) + 1, text, week_start(week))
+            raise ValueError("a memo needs some text")
+        t = Todo(max((x.id for x in self.todos), default=0) + 1, text, week_start(week), course=course)
         self.todos.append(t)
         return t
 
@@ -226,7 +238,7 @@ class Store:
     def add_note(self, course: str, text: str, at: datetime | None = None) -> Note:
         text = " ".join(text.split())
         if not text:
-            raise ValueError("a note needs some text")
+            raise ValueError("a log entry needs some text")
         n = Note(max((x.id for x in self.notes), default=0) + 1, course, text,
                  (at or datetime.now()).replace(second=0, microsecond=0))
         self.notes.append(n)

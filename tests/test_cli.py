@@ -304,9 +304,9 @@ def complete(line):
 
 def test_tab_completes_commands_and_class_names_word_by_word():
     cram("class", "add", "Linear Algebra, Linear Programming, Chemistry")
-    assert set(complete("cram ")) == {"start", "stop", "add", "create", "ls-class", "ls-note", "ls-memo"}
-    assert set(complete("cram add ")) == {"details", "note", "memo", "block"}
-    assert complete("cram add note lin") == ["linear"]
+    assert set(complete("cram ")) == {"start", "stop", "log", "add", "create", "ls-class", "ls-log", "ls-memo"}
+    assert set(complete("cram add ")) == {"details", "memo", "block"}
+    assert complete("cram log lin") == ["linear"]
     assert complete("cram start lin") == ["linear"]
     assert complete("cram in lin") == ["linear"]
     assert complete("cram in linear ") == ["algebra", "programming"]
@@ -395,24 +395,38 @@ def test_add_memo_and_ls_memo():
     assert "memo board" in r.output and "email the TA" in r.output and "old word works" in r.output
 
 
-def test_class_notes():
+def test_log_per_class():
     cram("create", "class", "Statics, Calc III")
-    assert cram("add", "note", "statics", "finished", "ch 5").exit_code == 0
-    assert cram("add", "note", "calc", "iii", "practice exam 2").exit_code == 0
-    r = cram("add", "note", "no class given")
+    assert cram("log", "statics", "finished", "ch", "5").exit_code == 0
+    assert cram("log", "calc", "iii", "practice exam 2").exit_code == 0
+    r = cram("log", "no class given")
     assert r.exit_code == 1 and "Which class" in r.output
-    assert cram("add", "note", "statics").exit_code == 1                 # a class but no note
+    assert cram("log", "statics").exit_code == 1                        # a class but nothing logged
     cram("start", "--at", "10/14/26 9am", "calc")
-    assert cram("add", "note", "series", "tests", "clicking").exit_code == 0   # goes to the class you're in
+    assert cram("log", "series", "tests", "clicking").exit_code == 0    # goes to the class you're in
     st = Store.load()
     assert [(n.course, n.text) for n in st.notes] == [("Statics", "finished ch 5"), ("Calc III", "practice exam 2"),
                                                       ("Calc III", "series tests clicking")]
-    r = cram("ls-note", "stat")
+    r = cram("ls-log", "stat")
     assert "finished ch 5" in r.output and "practice exam" not in r.output
-    r = cram("ls-note")
+    r = cram("ls-log")
     assert "Statics" in r.output and "Calc III" in r.output and "series tests clicking" in r.output
     cram("class", "rename", "calc iii", "Calc 3")
-    assert {n.course for n in Store.load().notes} == {"Statics", "Calc 3"}   # notes follow a rename
+    assert {n.course for n in Store.load().notes} == {"Statics", "Calc 3"}   # the log follows a rename
+    assert cram("add", "note", "x").exit_code == 2                     # 'note' is gone
+
+
+def test_memo_can_be_tagged_with_a_class():
+    cram("create", "class", "Statics")
+    cram("add", "memo", "statics: review the slides")
+    cram("add", "memo", "-c", "stat", "print the lab sheet")
+    cram("add", "memo", "note: not a class, so not a tag")
+    cram("add", "memo", "email the TA")
+    assert [(t.course, t.text) for t in Store.load().todos] == [
+        ("Statics", "review the slides"), ("Statics", "print the lab sheet"),
+        (None, "note: not a class, so not a tag"), (None, "email the TA")]
+    assert cram("add", "memo", "-c", "bio", "x").exit_code == 1
+    assert "Statics" in cram("ls-memo").output
 
 
 

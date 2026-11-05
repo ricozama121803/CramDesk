@@ -389,11 +389,11 @@ def note_line(n: Note, show_class: bool = False) -> Text:
 
 
 def notes_view(store: Store, course: str | None = None) -> Group:
-    """One class's notes, or every class's notes grouped under its name. Newest first."""
+    """One class's log, or every class's log grouped under its name. Newest first."""
     notes = store.notes_for(course)
     if not notes:
         who = course or "any class"
-        return Group(Text(f'no notes for {who} yet. add one with  cram add note {(course or "statics").lower()} "…"',
+        return Group(Text(f'nothing logged for {who} yet. add one with  cram log {(course or "statics").lower()} "…"',
                           style=T.dim))
     if course:
         return Group(*[note_line(n) for n in notes])

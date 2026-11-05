@@ -49,12 +49,12 @@ SHORTCUTS = [
     ("  start [class]", "start a block (no class: pick one)"),
     ("  stop", "stop the block"),
     ("  add details …", "details for the block you're in"),
-    ("  add note [class] …", "a note about a class (class optional while studying)"),
-    ("  add memo …", "a memo on the board, for any class"),
+    ("  log [class] …", "log what you did for a class (class optional while studying)"),
+    ("  add memo …", "a memo on the board (statics: … tags it with a class)"),
     ("  add block", "log a past block you forgot"),
     ("  create class …", "a new class"),
     ("  undo / redo", "take back your last change (or put it back)"),
-    ("  /day /week /notes /memo /classes /config", "views and settings"),
+    ("  /day /week /log /memo /classes /config", "views and settings"),
     ("", ""),
     ("tab", "switch between the bottom bar and the top section"),
     ("arrows", "move between details, memo, today and week"),
@@ -561,7 +561,7 @@ class LogScreen(Screen):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="logbox") as v:
-            v.border_title = "week log"
+            v.border_title = "week"
             yield BlockTable(id="log", cursor_type="row", zebra_stripes=False)
             yield Static(id="weektl")
             yield Static(id="logtotal")
@@ -692,7 +692,7 @@ def read_heartbeat() -> dict | None:
 SLASH = [
     ("/day", "a day's blocks", "/day yesterday"),
     ("/week", "the week, by day and class", "/week last"),
-    ("/notes", "notes about your classes", ""),
+    ("/log", "what you did, per class", ""),
     ("/memo", "the memo board: add, check off", ""),
     ("/classes", "your classes", ""),
     ("/config", "color theme", ""),
@@ -1166,7 +1166,7 @@ class TodoScreen(ModalScreen[bool]):
             v.border_title = "memo board"
             yield Static(id="todohead")
             yield OptionList(id="todolist")
-            yield Label("add a memo", classes="field")
+            yield Label("add a memo  (start with a class and a colon to tag it: statics: review slides)", classes="field")
             yield Input(id="newtodo", placeholder="e.g. finish problem set 4, then enter")
             yield Static(id="error")
             yield Static(Text.assemble(("enter", "bold"), " adds · ", ("tab", "bold"), " to the list: ",
@@ -1292,8 +1292,8 @@ class ClassPicker(ModalScreen[str | None]):
         self.dismiss(None)
 
 
-class NotesScreen(ModalScreen[bool]):
-    """Notes about your classes, newest first under each class. Type 'statics finished ch 5' + enter to add."""
+class ClassLogScreen(ModalScreen[bool]):
+    """Your activity log, newest first under each class. Type 'statics finished ch 5' + enter to add."""
 
     BINDINGS = [
         Binding("escape", "close", "close"),
@@ -1302,10 +1302,10 @@ class NotesScreen(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog") as v:
-            v.border_title = "notes"
+            v.border_title = "log"
             yield Static(id="noteshead")
             yield OptionList(id="notelist")
-            yield Label("add a note: the class, then the note  (while studying, the class is optional)",
+            yield Label("log what you did: the class, then what you did  (while studying, the class is optional)",
                         classes="field")
             yield Input(id="newnote", placeholder="e.g. statics finished ch 5, moments still shaky")
             yield Static(id="error")
@@ -1334,8 +1334,8 @@ class NotesScreen(ModalScreen[bool]):
         if ol.option_count:
             ol.highlighted = min(keep or 1, ol.option_count - 1)
         self.query_one("#noteshead", Static).update(
-            Text(f"{len(notes)} note{'s' if len(notes) != 1 else ''}", style=ui.T.dim) if notes
-            else Text("No notes yet. Write what you did, what's still shaky, anything.", style=ui.T.dim))
+            Text(f"{len(notes)} entr{'ies' if len(notes) != 1 else 'y'}", style=ui.T.dim) if notes
+            else Text("Nothing logged yet. Write what you did, what's still shaky, anything.", style=ui.T.dim))
 
     @on(Input.Submitted, "#newnote")
     def _add(self, ev: Input.Submitted) -> None:
@@ -1354,12 +1354,12 @@ class NotesScreen(ModalScreen[bool]):
                     "start with the class: e.g. statics finished ch 5", style=f"bold {ui.T.err}"))
                 return
         if not rest:
-            self.query_one("#error", Static).update(Text(f"write the note after {course}", style=f"bold {ui.T.err}"))
+            self.query_one("#error", Static).update(Text(f"write what you did after {course}", style=f"bold {ui.T.err}"))
             return
         n = store.add_note(course, rest)
         store.save()
         ev.input.value = ""
-        self.query_one("#error", Static).update(Text(f"✓ note for {n.course}", style=f"bold {ui.T.ok}"))
+        self.query_one("#error", Static).update(Text(f"✓ logged for {n.course}", style=f"bold {ui.T.ok}"))
         self.reload()
 
     def action_remove(self) -> None:
@@ -1372,7 +1372,7 @@ class NotesScreen(ModalScreen[bool]):
         store = Store.load()
         store.remove_note(int(opt.id))
         store.save()
-        self.query_one("#error", Static).update(Text("note removed (ctrl+z in the main screen undoes it)",
+        self.query_one("#error", Static).update(Text("entry removed (ctrl+z in the main screen undoes it)",
                                                      style=ui.T.muted))
         self.reload()
 
@@ -1439,7 +1439,7 @@ class OnboardingScreen(ModalScreen[bool]):
             ("start", "type it in the bar at the bottom (add a class: start statics)"),
             ("details", "type what you're covering as you go"),
             ("stop", "ends the block"),
-            ("add note …", "a note about the class you're studying"),
+            ("log …", "log what you did for the class you're studying"),
             ("add memo …", "a memo on the board, for any class"),
             ("tab", "switch between the bottom bar and the top section"),
             ("/", "views: a day, the week, notes, classes"),
@@ -1631,7 +1631,7 @@ class MainScreen(Screen):
         Binding("ctrl+p", "app.command_palette", "commands", show=False),
         Binding("f1", "keys", "shortcuts", show=False),
         Binding("ctrl+t", "edit_block", "edit times", show=False),
-        Binding("ctrl+l", "log", "week log", show=False),
+        Binding("ctrl+l", "log", "week view", show=False),
         Binding("ctrl+b", "toggle_side", "side panel", show=False),
     ]
     # Arrow moves inside the top section: (from, direction) -> to.
@@ -2034,20 +2034,18 @@ class MainScreen(Screen):
             self._add_details(" ".join(words[2:]))
         elif w0 == "add" and w1 in ("memo", "todo"):
             self._add_from_bar("todo", " ".join(words[2:]))
-        elif w0 == "add" and w1 in ("note", "notes"):
-            self._add_class_note(" ".join(words[2:]))
         elif w0 == "add" and w1 == "block":
             self.app.push_screen(BlockEditor(None, "add"), lambda ok: self.reload())
         elif (w0 == "create" or w0 == "add") and w1 == "class":
             self._add_from_bar("class", " ".join(words[2:]))
         elif w0 in ("memo", "todo"):
             self._add_from_bar("todo", " ".join(words[1:]))
-        elif w0 == "note":
+        elif w0 == "log":
             self._add_class_note(" ".join(words[1:]))
-        elif w0 in ("ls-memo",):
+        elif w0 == "ls-memo":
             self.action_todo()
-        elif w0 in ("ls-note", "notes"):
-            self.app.push_screen(NotesScreen(), lambda _: self.reload())
+        elif w0 == "ls-log":
+            self.app.push_screen(ClassLogScreen(), lambda _: self.reload())
         elif w0 in ("ls-class", "classes"):
             self.action_classes()
         elif w0 in ("undo", "redo"):
@@ -2056,7 +2054,7 @@ class MainScreen(Screen):
                 getattr(self.app, f"action_{w0}")()
         else:
             event.input.value = text
-            self.app.notify("Try [b]start[/b], [b]stop[/b], [b]add details …[/b], [b]add note …[/b], [b]add memo …[/b] "
+            self.app.notify("Try [b]start[/b], [b]stop[/b], [b]log …[/b], [b]add details …[/b], [b]add memo …[/b] "
                             "or [b]/[/b] for more.",
                             severity="warning")
 
@@ -2068,11 +2066,11 @@ class MainScreen(Screen):
             if run and run.course:
                 course, rest = run.course, text
         if not course or not rest:
-            self.app.push_screen(NotesScreen(), lambda _: self.reload())    # pick the class there
+            self.app.push_screen(ClassLogScreen(), lambda _: self.reload())    # pick the class there
             return
         store.add_note(course, rest)
         store.save()
-        self.app.notify(rest, title=f"✓ note for {course}")
+        self.app.notify(rest, title=f"✓ logged for {course}")
 
     def _add_details(self, text: str) -> None:
         store = Store.load()
@@ -2094,7 +2092,7 @@ class MainScreen(Screen):
         store = Store.load()
         if group == "todo":
             t = store.add_todo(text, week_start(date.today()))
-            msg = t.text
+            msg = (f"{t.course} · " if t.course else "") + t.text
             title = "✓ memo added"
         else:
             msg = ", ".join(store.add_class(p) for p in text.split(",") if p.strip())
@@ -2116,8 +2114,8 @@ class MainScreen(Screen):
                 self.action_config()
             elif cmd == "/classes":
                 self.action_classes()
-            elif cmd == "/notes":
-                self.app.push_screen(NotesScreen(), lambda _: self.reload())
+            elif cmd in ("/log", "/notes"):
+                self.app.push_screen(ClassLogScreen(), lambda _: self.reload())
             elif cmd in ("/memo", "/todo"):
                 self.action_todo()
             elif cmd == "/help":
@@ -2316,7 +2314,7 @@ class CramApp(App):
     #cmd { border: none; height: 1; padding: 0; background: transparent; }
     #status { height: 1; padding: 0 3; }
 
-    BlockEditor, Confirm, KeysSheet, ConfigScreen, ClassesScreen, TodoScreen, NotesScreen, ClassPicker, RecoverScreen, QuitScreen, ConflictScreen, OnboardingScreen {
+    BlockEditor, Confirm, KeysSheet, ConfigScreen, ClassesScreen, TodoScreen, ClassLogScreen, ClassPicker, RecoverScreen, QuitScreen, ConflictScreen, OnboardingScreen {
         align: center middle; background: $background 60%;
     }
     #dialog {

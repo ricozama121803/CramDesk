@@ -28,8 +28,8 @@ from .timeutil import (
 app = typer.Typer(
     name="cram",
     help="⏱  [bold]cram[/]: track your study hours.\n\n"
-         "[b]cram start[/] statics · [b]cram stop[/] · [b]cram add[/] details/note/memo/block · "
-         "[b]cram create class[/] · [b]cram ls-class[/] · [b]cram ls-note[/] · [b]cram ls-memo[/]\n\n"
+         "[b]cram start[/] statics · [b]cram stop[/] · [b]cram log[/] statics \"…\" · [b]cram add[/] details/memo/block · "
+         "[b]cram create class[/] · [b]cram ls-class[/] · [b]cram ls-log[/] · [b]cram ls-memo[/]\n\n"
          "Run [b]cram[/] on its own for the app, which does everything else.",
     rich_markup_mode="rich",
     no_args_is_help=False,
@@ -835,8 +835,7 @@ def stop_cmd(at: Optional[str] = typer.Option(None, "--at", help="End time if yo
     ui.console.print(Text("  ") + ui.totals_line(report.build(store, cfg, run.week)))
 
 
-add_app = typer.Typer(help="Add [b]details[/] to the current block, a [b]note[/] about a class, a [b]memo[/] to the board, "
-                           "or a past [b]block[/].",
+add_app = typer.Typer(help="Add [b]details[/] to the current block, a [b]memo[/] to the board, or a past [b]block[/].",
                       rich_markup_mode="rich", no_args_is_help=True)
 app.add_typer(add_app, name="add")
 
@@ -855,40 +854,19 @@ def add_details(text: list[str] = typer.Argument(..., help="What you're covering
 
 @add_app.command("memo")
 @add_app.command("todo", hidden=True)
-def add_memo(text: list[str] = typer.Argument(..., help="The memo.")):
-    """Pin a memo to the board, for any class or none. [dim]e.g. cram add memo "email the TA"[/]"""
+def add_memo(text: list[str] = typer.Argument(..., help="The memo. Start with 'class:' to tag it."),
+             course: Optional[str] = typer.Option(None, "--class", "-c", help="Tag it with a class.",
+                                                  autocompletion=_complete_class_option)):
+    """Put a memo on the board. [dim]e.g. cram add memo "email the TA"[/] or [dim]cram add memo "statics: review slides"[/]"""
     store, _ = _load()
+    cls = _class_arg(store, course) if course is not None else None
     try:
-        t = store.add_todo(" ".join(text), week_start(date.today()))
+        t = store.add_todo(" ".join(text), week_start(date.today()), cls)
     except ValueError:
         _fail('Give the memo some text: [b]cram add memo "email the TA"[/]')
     store.save()
-    ui.ok(f"Memo: {t.text}   [dim](check it off in the app: [b]cram[/])[/]")
-
-
-@add_app.command("note")
-def add_note(words: list[str] = typer.Argument(..., help="The class, then the note. While studying, the class is optional.",
-                                               autocompletion=_class_word_completer("words"))):
-    """Write a note about a class. [dim]e.g. cram add note statics "finished ch 5, moments still shaky"[/]
-
-    While you're studying, leave the class out and it goes to the class you're in."""
-    store, _ = _load()
-    text = " ".join(words)
-    course, rest = store.match_class(text)
-    if not course:
-        run = store.running()
-        if run and run.course:
-            course, rest = run.course, text
-        elif _tty():
-            course, rest = _ask_class(store), text
-        else:
-            _fail(f"Which class is it for? [b]cram add note <class> \"…\"[/]  (your classes: "
-                  f"{', '.join(store.classes) or 'none yet'})")
-    if not rest:
-        _fail(f'Write the note too: [b]cram add note {course.lower()} "finished ch 5"[/]')
-    n = store.add_note(course, rest)
-    store.save()
-    ui.ok(f"Note for [b]{n.course}[/]: {n.text}")
+    tag = f"[b]{t.course}[/] · " if t.course else ""
+    ui.ok(f"Memo: {tag}{t.text}   [dim](check it off in the app: [b]cram[/])[/]")
 
 
 @add_app.command("block")
@@ -950,13 +928,38 @@ def ls_memo():
     _show_todos(week_start(date.today()))
 
 
-@app.command("ls-note")
-def ls_note(words: Optional[list[str]] = typer.Argument(None, help="A class (leave out for every class).",
-                                                         autocompletion=_class_word_completer("words"))):
-    """Your notes about a class, newest first. No class: every class's notes."""
+@app.command("log")
+def log_cmd(words: list[str] = typer.Argument(..., help="The class, then what you did. While studying, the class is optional.",
+                                              autocompletion=_class_word_completer("words"))):
+    """Log what you did for a class. [dim]e.g. cram log statics "finished ch 5, moments still shaky"[/]
+
+    While you're studying, leave the class out and it goes to the class you're in."""
+    store, _ = _load()
+    text = " ".join(words)
+    course, rest = store.match_class(text)
+    if not course:
+        run = store.running()
+        if run and run.course:
+            course, rest = run.course, text
+        elif _tty():
+            course, rest = _ask_class(store), text
+        else:
+            _fail(f"Which class is it for? [b]cram log <class> \"…\"[/]  (your classes: "
+                  f"{', '.join(store.classes) or 'none yet'})")
+    if not rest:
+        _fail(f'Write what you did too: [b]cram log {course.lower()} "finished ch 5"[/]')
+    n = store.add_note(course, rest)
+    store.save()
+    ui.ok(f"Logged for [b]{n.course}[/]: {n.text}")
+
+
+@app.command("ls-log")
+def ls_log(words: Optional[list[str]] = typer.Argument(None, help="A class (leave out for every class).",
+                                                        autocompletion=_class_word_completer("words"))):
+    """Your log for a class, newest first. No class: every class's log."""
     store, _ = _load()
     course = _class_arg(store, " ".join(words)) if words else None
-    ui.console.print(ui.panel(ui.notes_view(store, course), f"notes · {course}" if course else "notes"))
+    ui.console.print(ui.panel(ui.notes_view(store, course), f"log · {course}" if course else "log"))
 
 
 # ── misc ─────────────────────────────────────────────────────────────────────
