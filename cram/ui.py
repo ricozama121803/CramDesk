@@ -52,9 +52,28 @@ THEMES = {
 
 T = SimpleNamespace(**THEMES["catppuccin"])
 
+# Lowest contrast ratio (WCAG, 1-21) each color may have against the terminal background.
+# Text roles need 4.5 to read comfortably; dim labels 3; faint is for rules and "·" placeholders.
+MIN_CONTRAST = dict(text=4.5, muted=4.5, accent=4.5, accent2=4.5, ok=4.5, warn=4.5, err=4.5,
+                    grad=3.0, dim=3.0, faint=1.6)
 
-def set_theme(name: str) -> None:
+
+def set_theme(name: str, background: str | None = None) -> None:
+    """Load a theme. With `background` (the terminal's own background color), every color is
+    nudged until it reads clearly on it, so a dark theme still works in a light terminal.
+    The full-screen app paints the theme's own background, so it passes none."""
     T.__dict__.update(THEMES.get(name, THEMES["catppuccin"]))
+    if background:
+        readable_on(background)
+
+
+def readable_on(bg: str) -> None:
+    """Fit the current theme to background `bg`."""
+    for role, ratio in MIN_CONTRAST.items():
+        cur = getattr(T, role)
+        setattr(T, role, [_ensure_contrast(c, bg, ratio) for c in cur] if isinstance(cur, list)
+                else _ensure_contrast(cur, bg, ratio))
+    T.base = bg
 
 
 # ── color helpers ────────────────────────────────────────────────────────────
@@ -67,6 +86,36 @@ def _rgb(h: str) -> tuple[int, int, int]:
 def _lerp(a: str, b: str, t: float) -> str:
     ra, rb = _rgb(a), _rgb(b)
     return "#" + "".join(f"{round(x + (y - x) * t):02x}" for x, y in zip(ra, rb))
+
+
+def luminance(h: str) -> float:
+    def lin(c: int) -> float:
+        c /= 255
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = (lin(c) for c in _rgb(h))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def contrast(a: str, b: str) -> float:
+    la, lb = sorted((luminance(a), luminance(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+def is_light(bg: str) -> bool:
+    # Past this point black text out-contrasts white text.
+    return luminance(bg) > 0.179
+
+
+def _ensure_contrast(fg: str, bg: str, ratio: float) -> str:
+    """fg, mixed toward black or white (keeping its hue) just enough to reach `ratio` against bg."""
+    if contrast(fg, bg) >= ratio:
+        return fg
+    target = "#000000" if is_light(bg) else "#ffffff"
+    for i in range(1, 21):
+        c = _lerp(fg, target, i / 20)
+        if contrast(c, bg) >= ratio:
+            return c
+    return target
 
 
 def ramp(n: int, stops: list[str] | None = None) -> list[str]:
@@ -132,7 +181,8 @@ def clock_str(seconds: int, with_seconds: bool = True) -> str:
 # ── small pieces ─────────────────────────────────────────────────────────────
 
 def chip(label: str, color: str) -> Text:
-    return Text.assemble((f" {label} ", f"bold {T.base} on {color}"))
+    fg = max((T.base, T.text), key=lambda c: contrast(c, color))
+    return Text.assemble((f" {label} ", f"bold {fg} on {color}"))
 
 
 def bar(minutes: int, scale: int, width: int = 26, color: str | None = None) -> Text:

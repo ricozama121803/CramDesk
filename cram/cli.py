@@ -122,9 +122,25 @@ def _complete_session_id(incomplete: str):
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
+_term_bg: list[str | None] = []
+
+
+def _background(cfg: dict) -> str:
+    """The terminal's background (asked once per run). If it can't be told, assume the theme's own."""
+    if not _term_bg:
+        from .termbg import background
+        _term_bg.append(background(str(cfg["ui"].get("background", "auto"))))
+    name = cfg["ui"].get("theme", "catppuccin")
+    return _term_bg[0] or ui.THEMES.get(name, ui.THEMES["catppuccin"])["base"]
+
+
+def _apply_theme(cfg: dict, name: str | None = None) -> None:
+    ui.set_theme(name or cfg["ui"].get("theme", "catppuccin"), background=_background(cfg))
+
+
 def _load() -> tuple[Store, dict]:
     cfg = config_mod.load()
-    ui.set_theme(cfg["ui"].get("theme", "catppuccin"))
+    _apply_theme(cfg)
     return Store.load(), cfg
 
 
@@ -1038,7 +1054,7 @@ def cycle_theme():
     cur = cfg["ui"].get("theme", "catppuccin")
     nxt = names[(names.index(cur) + 1) % len(names)] if cur in names else names[0]
     config_mod.set_value("ui", "theme", nxt)
-    ui.set_theme(nxt)
+    _apply_theme(cfg, nxt)
     swatch = Text.assemble(*[("██", c) for c in ui.ramp(6)])
     ui.console.print(Text.assemble(("  theme ", ui.T.dim), (f"{nxt:<12}", f"bold {ui.T.accent}"), swatch,
                                    (f"   ({names.index(nxt) + 1}/{len(names)})", ui.T.dim)))
@@ -1051,6 +1067,7 @@ def config(
 ):
     """Show or edit your settings (theme, banner, mascot)."""
     _load()  # creates the file on first run
+    syntax_theme = "ansi_light" if ui.is_light(ui.T.base) else "ansi_dark"
     f = config_file()
     if path:
         ui.console.print(f"config  {f}\ndata    {data_file()}\ncache   {cache_dir()}")
@@ -1064,7 +1081,7 @@ def config(
         except Exception as e:  # noqa: BLE001
             ui.err(f"Config has a problem: {e}")
         return
-    ui.console.print(ui.panel(Syntax(f.read_text(), "toml", theme="ansi_dark", background_color="default"),
+    ui.console.print(ui.panel(Syntax(f.read_text(), "toml", theme=syntax_theme, background_color="default"),
                               "config", subtitle=Text(str(f), style=ui.T.dim), padding=(0, 1)))
 
 

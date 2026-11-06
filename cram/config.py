@@ -10,6 +10,7 @@ DEFAULT_TOML = '''\
 
 [ui]
 theme = "catppuccin"                    # catppuccin | nord | gruvbox | tokyonight | rosepine | leonida
+background = "auto"                     # your terminal's background: auto | light | dark | "#rrggbb"
 banner = true                           # show the ¡CRAM! banner on the dashboard
 mascot = true                           # show Dewey the dolphin next to the banner
 '''
