@@ -51,6 +51,20 @@ Run `cram`. The bottom bar takes the same words: `start statics`, `stop`, `add d
 - **today** and **week** panels: hours per day and per class. `enter` opens either one.
 - `/` lists the views (`/day`, `/week`, `/log`, `/memo`, `/classes`, `/config`), and `f1` shows every key.
 
+## Colors
+
+Pick a theme with `/config` in the app or `cram config --edit`: catppuccin, nord, gruvbox,
+tokyonight, rosepine or leonida.
+
+The `cram` commands print straight onto your terminal's own background, so cram asks the
+terminal what color that is and adjusts the theme until all text reads clearly on it, light or
+dark. If your terminal doesn't say, set it yourself in `config.toml`:
+
+```toml
+[ui]
+background = "light"    # auto (default) | light | dark | "#rrggbb"
+```
+
 ## Files
 
 | Path | What's in it |
